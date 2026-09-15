@@ -1,0 +1,304 @@
+"""Grades a typed Spanish attempt against accept/reject vocabulary lists.
+
+Design stance (see repo docs): a deterministic grader that is too strict
+teaches the user the tool is broken. Every ambiguous case is resolved
+toward ACCEPT. The only hard rejection this grader cares about is
+LatAm vocabulary where Peninsular Spanish is required.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Sequence
+
+from drill.normalize import edit_distance, fold_accents, token_edit_distance, tokens
+
+__all__ = ["Verdict", "grade"]
+
+
+@dataclass(frozen=True)
+class Verdict:
+    accepted: bool
+    layer: str  # "L0_empty"|"L1_banned"|"L2_exact"|"L3_accent"|"L4_close"|"L5_reject"
+    reason: str
+    matched: str | None
+    detail: str | None
+
+
+# --- tolerance vocabularies -------------------------------------------------
+
+_POLITENESS_MULTI: tuple[tuple[str, ...], ...] = (("por", "favor"),)
+_POLITENESS_SINGLE: frozenset[str] = frozenset(
+    {"porfa", "gracias", "perdona", "perdon", "oye", "hola"}
+)
+
+_PRONOUNS_FOLDED: frozenset[str] = frozenset(
+    {
+        "yo",
+        "tu",
+        "usted",
+        "ustedes",
+        "el",
+        "ella",
+        "nosotros",
+        "nosotras",
+        "vosotros",
+        "vosotras",
+        "ellos",
+        "ellas",
+    }
+)
+
+_ARTICLES_FOLDED: frozenset[str] = frozenset({"el", "la", "los", "las", "un", "una"})
+
+
+def _strip_leading_politeness(toks: list[str]) -> list[str]:
+    for phrase in _POLITENESS_MULTI:
+        n = len(phrase)
+        if len(toks) > n and tuple(fold_accents(t) for t in toks[:n]) == phrase:
+            return toks[n:]
+    if len(toks) > 1 and fold_accents(toks[0]) in _POLITENESS_SINGLE:
+        return toks[1:]
+    return toks
+
+
+def _strip_trailing_politeness(toks: list[str]) -> list[str]:
+    for phrase in _POLITENESS_MULTI:
+        n = len(phrase)
+        if len(toks) > n and tuple(fold_accents(t) for t in toks[-n:]) == phrase:
+            return toks[:-n]
+    if len(toks) > 1 and fold_accents(toks[-1]) in _POLITENESS_SINGLE:
+        return toks[:-1]
+    return toks
+
+
+def _strip_leading_pronoun(toks: list[str]) -> list[str]:
+    if len(toks) > 1 and fold_accents(toks[0]) in _PRONOUNS_FOLDED:
+        return toks[1:]
+    return toks
+
+
+def _strip_leading_article(toks: list[str]) -> list[str]:
+    if len(toks) > 1 and fold_accents(toks[0]) in _ARTICLES_FOLDED:
+        return toks[1:]
+    return toks
+
+
+def _canonicalize(toks: Sequence[str]) -> list[str]:
+    """Strip politeness wrapping, optional leading subject pronoun, and a
+    leading article — none of these should ever decide a verdict."""
+    current = list(toks)
+    changed = True
+    while changed:
+        changed = False
+        for strip_fn in (
+            _strip_leading_politeness,
+            _strip_trailing_politeness,
+            _strip_leading_pronoun,
+            _strip_leading_article,
+        ):
+            updated = strip_fn(current)
+            if updated != current:
+                current = updated
+                changed = True
+    return current
+
+
+def _is_subsequence(sub: list[str], full: list[str]) -> bool:
+    it = iter(full)
+    return all(tok in it for tok in sub)
+
+
+def _blocked_by_ene_tilde_confusion(x: str, y: str) -> bool:
+    """True iff x and y differ ONLY in ñ-vs-n (e.g. "año"/"ano").
+
+    Generic edit-distance tolerance must never paper over this: ñ is never
+    folded, and a word pair that is "close" purely because ñ got swapped for
+    n has to be rejected, not fuzzy-accepted.
+    """
+    if x == y:
+        return False
+    if "ñ" not in x and "ñ" not in y:  # neither contains ñ
+        return False
+    return x.replace("ñ", "n") == y.replace("ñ", "n")
+
+
+# Tokens whose presence or absence should never decide a verdict: Spanish
+# drops and re-adds these freely, and a learner who produced everything else
+# correctly has demonstrated what the card is testing.
+_OPTIONAL_TOKENS = frozenset(
+    {
+        "el", "la", "los", "las", "un", "una", "unos", "unas", "lo",
+        "de", "del", "a", "al", "en", "con", "por", "para", "que",
+        "y", "o", "mi", "tu", "su", "me", "te", "se", "nos", "os", "le", "les",
+    }
+)
+
+# A substituted token may differ by at most this many characters, and both
+# forms must be at least this long. Together these let "cansado"/"cansaddo"
+# (a typo) through while stopping "hambre"/"sed" and "soy"/"estoy".
+_SUB_MAX_CHAR_DIST = 2
+_SUB_MIN_LEN = 4
+
+
+def _close_enough(att: list[str], acc: list[str]) -> bool:
+    """True when `att` differs from `acc` by one *forgivable* token.
+
+    Forgivable means either a typo/inflection of a single content word, or
+    the insertion or omission of a function word. An arbitrary different
+    word is NOT forgivable even though it is one token-edit away -- see the
+    comment at the L4 call site for why that distinction carries the whole
+    weight of this layer.
+    """
+    if att == acc:
+        return True
+
+    # Same length: at most one position may differ, and that pair must look
+    # like a typo or an inflection rather than a different word.
+    if len(att) == len(acc):
+        diffs = [i for i, (x, y) in enumerate(zip(att, acc)) if x != y]
+        if len(diffs) != 1:
+            return False
+        a_tok, b_tok = att[diffs[0]], acc[diffs[0]]
+        if min(len(a_tok), len(b_tok)) < _SUB_MIN_LEN:
+            return False
+        return edit_distance(a_tok, b_tok) <= _SUB_MAX_CHAR_DIST
+
+    # Off by one token: allowed only when the extra token is a function word.
+    if abs(len(att) - len(acc)) == 1:
+        longer, shorter = (att, acc) if len(att) > len(acc) else (acc, att)
+        for i in range(len(longer)):
+            if longer[:i] + longer[i + 1 :] == shorter:
+                return longer[i] in _OPTIONAL_TOKENS
+        return False
+
+    return False
+
+
+def grade(attempt: str, *, accept: Sequence[str], reject: Sequence[str] = ()) -> Verdict:
+    norm_attempt = " ".join(tokens(attempt))
+
+    # L0: empty or a single character carries no gradeable content.
+    if len(norm_attempt) <= 1:
+        return Verdict(
+            accepted=False,
+            layer="L0_empty",
+            reason="Escribe tu respuesta antes de comprobar.",
+            matched=None,
+            detail=None,
+        )
+
+    attempt_tokens = tokens(attempt)
+    attempt_tokens_folded = [fold_accents(t) for t in attempt_tokens]
+
+    # L1: banned (non-Peninsular) vocabulary — the one hard rejection.
+    for r in reject:
+        r_tokens_folded = [fold_accents(t) for t in tokens(r)]
+        if not r_tokens_folded:
+            continue
+        if _is_subsequence(r_tokens_folded, attempt_tokens_folded):
+            alt = accept[0] if accept else ""
+            reject_word = r.strip()
+            reason = f"En España no se dice «{reject_word}» — prueba con «{alt}»."
+            detail = f"«{reject_word}» es de Latinoamérica; en España: «{alt}»"
+            return Verdict(
+                accepted=False,
+                layer="L1_banned",
+                reason=reason,
+                matched=None,
+                detail=detail,
+            )
+
+    canon_attempt_tokens = _canonicalize(attempt_tokens)
+    canon_attempt = " ".join(canon_attempt_tokens)
+
+    canon_accepts: list[tuple[str, list[str], str]] = []
+    for original in accept:
+        canon_tokens_a = _canonicalize(tokens(original))
+        canon_accepts.append((original, canon_tokens_a, " ".join(canon_tokens_a)))
+
+    # L2: exact match (post-canonicalization), accent-sensitive.
+    for original, _canon_tokens_a, canon_str_a in canon_accepts:
+        if canon_attempt == canon_str_a:
+            return Verdict(
+                accepted=True,
+                layer="L2_exact",
+                reason="¡Correcto!",
+                matched=original,
+                detail=None,
+            )
+
+    # L3: matches once accents are folded — an accent slip, never a block.
+    folded_attempt = fold_accents(canon_attempt)
+    for original, _canon_tokens_a, canon_str_a in canon_accepts:
+        if folded_attempt == fold_accents(canon_str_a):
+            return Verdict(
+                accepted=True,
+                layer="L3_accent",
+                reason=f"Bien — ojo con la tilde: «{original}»",
+                matched=original,
+                detail=None,
+            )
+
+    # L4: close enough — absorbs articles, minor agreement slips, typos.
+    #
+    # Token-level distance <=1 is only meaningful when the accept form has
+    # more than one token: for a single-token accept form, ANY differing
+    # single-token attempt is trivially "1 token substitution" apart, which
+    # would accept any wrong word. Single-token accept forms are judged by
+    # character edit distance instead, per the contract's explicit OR clause.
+    #
+    # Multi-token forms need the same guard for the SAME reason. A bare
+    # token-distance <=1 test accepts "tengo sed" for "tengo hambre" and
+    # "soy aburrido" for "estoy aburrido" -- one token apart, opposite
+    # meaning. In a *learning* tool that is worse than a false reject: a
+    # false reject annoys you, a false accept teaches you the wrong thing.
+    # `_close_enough` therefore requires that the one differing token be
+    # lexically close (a typo or inflection), or that the inserted/dropped
+    # token be a function word.
+    for original, canon_tokens_a, canon_str_a in canon_accepts:
+        if _blocked_by_ene_tilde_confusion(canon_attempt, canon_str_a):
+            continue
+        if len(canon_tokens_a) > 1 and _close_enough(canon_attempt_tokens, canon_tokens_a):
+            return Verdict(
+                accepted=True,
+                layer="L4_close",
+                reason=f"Aceptado — muy cerca de «{original}»",
+                matched=original,
+                detail=None,
+            )
+        if len(canon_tokens_a) == 1 and edit_distance(canon_attempt, canon_str_a) <= 2:
+            return Verdict(
+                accepted=True,
+                layer="L4_close",
+                reason=f"Aceptado — muy cerca de «{original}»",
+                matched=original,
+                detail=None,
+            )
+
+    # A rejection caused solely by n-for-ñ is correct but baffling unless we
+    # say so: ñ is the one character that is never folded (ano/año), and a
+    # learner typing on a US keyboard will hit this constantly.
+    for original, _canon_tokens_a, canon_str_a in canon_accepts:
+        # Fold the *other* accents first, so an otherwise-accentless attempt
+        # ("donde esta el bano") still reveals ñ as the sole real difference.
+        if _blocked_by_ene_tilde_confusion(
+            fold_accents(canon_attempt), fold_accents(canon_str_a)
+        ):
+            return Verdict(
+                accepted=False,
+                layer="L5_reject",
+                reason=f"Cuidado con la ñ: «{original}»",
+                matched=None,
+                detail="La ñ nunca es opcional — «ano» y «año» no son lo mismo. "
+                "En un teclado US: opción + n, luego la vocal.",
+            )
+
+    # L5: nothing matched — stay encouraging, this is the tool's failure mode.
+    return Verdict(
+        accepted=False,
+        layer="L5_reject",
+        reason="Casi — no coincide, pero vas bien. ¡Sigue intentando!",
+        matched=None,
+        detail=None,
+    )
