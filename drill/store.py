@@ -399,7 +399,12 @@ def daily_queue(
     ]
     due_reviews = len(reviews)
 
-    introduced_today = new_cards_introduced_today(conn, now, deck=deck)
+    # The daily budget is GLOBAL, deliberately not scoped to `deck`. `deck`
+    # says which cards may be offered; it must not say how many count against
+    # today's cap. Scoping the count lets the GUI's deck picker spend the
+    # budget once per deck -- 20 on "Todas", then another 14 on grammar, then
+    # another 13 on travel, which is the 300-card wall again by another route.
+    introduced_today = new_cards_introduced_today(conn, now)
     new_budget = max(0, new_per_day - introduced_today)
 
     new_cards: list[tuple[Card, SchedRow]] = []

@@ -69,8 +69,10 @@ class DrillApp:
         self.answered = 0
         self.awaiting_next = False
         self.started = 0.0
+        self.view = "drill"
 
         self._build_ui()
+        self._refresh_deck_choices()
         self._load_queue()
 
     # --- ui ---------------------------------------------------------------
@@ -94,6 +96,28 @@ class DrillApp:
         self.lbl_deck = tk.Label(head, text="", font=self.f_small, fg=MUTED, bg=BG)
         self.lbl_deck.pack(side="left")
 
+        style = ttk.Style(r)
+        style.configure(
+            "Deck.TCombobox", fieldbackground=CARD, background=CARD, foreground=FG,
+            arrowcolor=FG, bordercolor=CARD, lightcolor=CARD, darkcolor=CARD,
+        )
+        style.map(
+            "Deck.TCombobox",
+            fieldbackground=[("readonly", CARD)],
+            foreground=[("readonly", FG)],
+            background=[("readonly", CARD)],
+        )
+        r.option_add("*TCombobox*Listbox.background", CARD)
+        r.option_add("*TCombobox*Listbox.foreground", FG)
+        r.option_add("*TCombobox*Listbox.selectBackground", ACCENT)
+        r.option_add("*TCombobox*Listbox.selectForeground", FG)
+
+        self.deck_picker = ttk.Combobox(
+            head, state="readonly", font=self.f_small, width=18, style="Deck.TCombobox",
+        )
+        self.deck_picker.pack(side="left", padx=(12, 0))
+        self.deck_picker.bind("<<ComboboxSelected>>", self._on_deck_change)
+
         self.lbl_score = tk.Label(head, text="", font=self.f_small, fg=MUTED, bg=BG)
         self.lbl_score.pack(side="right")
 
@@ -103,6 +127,7 @@ class DrillApp:
         # prompt card
         body = tk.Frame(r, bg=CARD, highlightthickness=0)
         body.pack(fill="both", expand=True, padx=28, pady=20)
+        self.drill_frame = body
 
         self.lbl_tag = tk.Label(body, text="", font=self.f_small, fg=MUTED, bg=CARD)
         self.lbl_tag.pack(anchor="w", padx=24, pady=(20, 0))
@@ -120,6 +145,7 @@ class DrillApp:
         )
         self.entry.pack(fill="x", padx=24, ipady=10)
         self.entry.bind("<Return>", self._on_enter)
+        self.entry.bind("<Tab>", self._toggle_view)
 
         # accent bar
         acc = tk.Frame(body, bg=CARD)
@@ -153,12 +179,15 @@ class DrillApp:
         self.lbl_note.pack(anchor="w", padx=24, pady=(6, 20), fill="x")
 
         self.lbl_hint = tk.Label(
-            r, text="Enter para responder · Ctrl-1..9 para acentos",
+            r, text="Enter para responder · Ctrl-1..9 para acentos · Tab para progreso",
             font=self.f_small, fg=MUTED, bg=BG,
         )
         self.lbl_hint.pack(pady=(0, 16))
 
         self.entry.focus_set()
+
+        self._build_progress_view()
+        r.bind("<Tab>", self._toggle_view)
 
     def _insert(self, ch: str) -> str:
         self.entry.insert(tk.INSERT, ch)
@@ -324,6 +353,153 @@ class DrillApp:
         self.lbl_note.config(text=tail)
         self.entry.pack_forget()
         self.bar["value"] = 100
+
+    # --- progress view ------------------------------------------------------
+
+    def _build_progress_view(self) -> None:
+        prog = tk.Frame(self.root, bg=CARD, highlightthickness=0)
+        self.progress_frame = prog
+
+        tk.Label(
+            prog, text="Progreso", font=self.f_prompt, fg=FG, bg=CARD,
+        ).pack(anchor="w", padx=24, pady=(20, 12))
+
+        self.lbl_prog_session = tk.Label(
+            prog, text="", font=self.f_body, fg=FG, bg=CARD, justify="left",
+        )
+        self.lbl_prog_session.pack(anchor="w", padx=24, pady=(0, 4))
+
+        self.lbl_prog_collection = tk.Label(
+            prog, text="", font=self.f_small, fg=MUTED, bg=CARD, justify="left",
+        )
+        self.lbl_prog_collection.pack(anchor="w", padx=24, pady=(0, 18))
+
+        tk.Label(
+            prog, text="Etiquetas más débiles", font=self.f_body, fg=FG, bg=CARD,
+        ).pack(anchor="w", padx=24)
+
+        self.lbl_tags_empty = tk.Label(
+            prog, text="", font=self.f_small, fg=MUTED, bg=CARD,
+            wraplength=600, justify="left",
+        )
+        self.lbl_tags_empty.pack(anchor="w", padx=24, pady=(4, 4))
+
+        tags_frame = tk.Frame(prog, bg=CARD)
+        tags_frame.pack(anchor="w", padx=24, fill="x", pady=(0, 18))
+        self.tag_rows: list[tk.Label] = []
+        for i in range(8):
+            lbl = tk.Label(tags_frame, text="", font=self.f_small, fg=FG, bg=CARD, anchor="w")
+            lbl.grid(row=i, column=0, sticky="w")
+            self.tag_rows.append(lbl)
+
+        tk.Label(
+            prog, text="Tarjetas más difíciles", font=self.f_body, fg=FG, bg=CARD,
+        ).pack(anchor="w", padx=24)
+
+        self.lbl_cards_empty = tk.Label(
+            prog, text="", font=self.f_small, fg=MUTED, bg=CARD,
+            wraplength=600, justify="left",
+        )
+        self.lbl_cards_empty.pack(anchor="w", padx=24, pady=(4, 4))
+
+        cards_frame = tk.Frame(prog, bg=CARD)
+        cards_frame.pack(anchor="w", padx=24, fill="x", pady=(0, 20))
+        self.card_rows: list[tk.Label] = []
+        for i in range(5):
+            lbl = tk.Label(cards_frame, text="", font=self.f_small, fg=FG, bg=CARD, anchor="w")
+            lbl.grid(row=i, column=0, sticky="w")
+            self.card_rows.append(lbl)
+
+    def _refresh_progress(self) -> None:
+        self.lbl_prog_session.config(
+            text=f"Sesión: {self.correct}/{self.answered} correctas"
+        )
+        stats = store.deck_stats(self.conn, self.deck)
+        self.lbl_prog_collection.config(
+            text=f"Colección: {stats['total']} total · {stats['new']} nuevas · "
+            f"{stats['learning']} aprendiendo · {stats['review']} repaso · "
+            f"{stats['lapsed']} atrasadas"
+        )
+
+        # Same >=3-attempts floor as the CLI (`drill stats`) -- a ranking
+        # built on one or two answers isn't honest, so below that floor we
+        # say so instead of pretending we know the weak spots.
+        tag_stats = [
+            t for t in store.tag_performance(self.conn, deck=self.deck) if t.attempts >= 3
+        ][:8]
+        if tag_stats:
+            self.lbl_tags_empty.config(text="")
+            for i, lbl in enumerate(self.tag_rows):
+                if i < len(tag_stats):
+                    t = tag_stats[i]
+                    lbl.config(text=f"{t.tag:<16}{t.accuracy:>5.0%}   {t.correct}/{t.attempts}")
+                    lbl.grid()
+                else:
+                    lbl.grid_remove()
+        else:
+            self.lbl_tags_empty.config(
+                text="Sigue practicando — aún no hay datos suficientes"
+            )
+            for lbl in self.tag_rows:
+                lbl.grid_remove()
+
+        hard = store.hardest_cards(self.conn, deck=self.deck, limit=5)
+        if hard:
+            self.lbl_cards_empty.config(text="")
+            for i, lbl in enumerate(self.card_rows):
+                if i < len(hard):
+                    card, attempts, misses = hard[i]
+                    prompt = card.prompt_en
+                    if len(prompt) > 40:
+                        prompt = prompt[:37] + "..."
+                    lbl.config(text=f"{prompt}   ·   {misses}/{attempts} fallos")
+                    lbl.grid()
+                else:
+                    lbl.grid_remove()
+        else:
+            self.lbl_cards_empty.config(
+                text="Sigue practicando — aún no hay datos suficientes"
+            )
+            for lbl in self.card_rows:
+                lbl.grid_remove()
+
+    def _toggle_view(self, _event: object = None) -> str:
+        if self.view == "drill":
+            self.view = "progress"
+            self.drill_frame.pack_forget()
+            self._refresh_progress()
+            self.progress_frame.pack(fill="both", expand=True, padx=28, pady=20)
+            self.root.focus_set()
+            self.lbl_hint.config(text="Tab para volver al ejercicio")
+        else:
+            self.view = "drill"
+            self.progress_frame.pack_forget()
+            self.drill_frame.pack(fill="both", expand=True, padx=28, pady=20)
+            if self.queue:
+                self.entry.focus_set()
+            self.lbl_hint.config(
+                text="Enter para continuar" if self.awaiting_next
+                else "Enter para responder · Ctrl-1..9 para acentos · Tab para progreso"
+            )
+        return "break"
+
+    # --- deck picker ---------------------------------------------------------
+
+    def _deck_names(self) -> list[str]:
+        rows = self.conn.execute("SELECT DISTINCT deck FROM card ORDER BY deck").fetchall()
+        return [row[0] for row in rows]
+
+    def _refresh_deck_choices(self) -> None:
+        names = self._deck_names()
+        self.deck_picker["values"] = ["Todas"] + names
+        self.deck_picker.set(self.deck if self.deck is not None else "Todas")
+
+    def _on_deck_change(self, _event: object = None) -> None:
+        value = self.deck_picker.get()
+        self.deck = None if value == "Todas" else value
+        self._load_queue()
+        if self.view == "progress":
+            self._refresh_progress()
 
     def close(self) -> None:
         try:

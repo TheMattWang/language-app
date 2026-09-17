@@ -112,3 +112,32 @@ def test_whole_collection_fits_before_departure(tmp_path: Path) -> None:
         day += timedelta(days=1)
     assert introduced >= 300, f"only {introduced}/300 cards would be seen before the flight"
     conn.close()
+
+
+def test_daily_budget_is_global_not_per_deck(tmp_path: Path) -> None:
+    """Filtering by deck must not grant a fresh daily allowance.
+
+    The GUI's deck picker calls daily_queue with a deck, so a per-deck cap
+    let the budget be spent once per deck: 20 on "all", then another batch
+    on each individual deck. Deck says which cards may be offered, never how
+    many count against today's cap.
+    """
+    conn = _seed(tmp_path, {"travel_production": 50, "peninsular_contrast": 50,
+                            "grammar_repair": 50})
+    q = store.daily_queue(conn, NOW, new_per_day=20)
+    assert q.new_introduced == 20
+
+    for card, _row in q.items:
+        store.record_review(
+            conn, card_id=card.card_id, reviewed_at=NOW, grade=2, latency_ms=1,
+            raw_text="x", accepted=True, layer="L2_exact",
+            interval_before=0.0, interval_after=1.0,
+        )
+    conn.commit()
+
+    for deck in ("travel_production", "peninsular_contrast", "grammar_repair"):
+        scoped = store.daily_queue(conn, NOW, deck=deck, new_per_day=20)
+        assert scoped.new_introduced == 0, (
+            f"filtering to {deck} handed out {scoped.new_introduced} extra new cards"
+        )
+    conn.close()
