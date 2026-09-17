@@ -13,7 +13,7 @@ import json
 import sqlite3
 import statistics
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Sequence
 
@@ -22,6 +22,19 @@ DEFAULT_DB = Path.home() / ".langapp" / "drill.db"
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 _VALID_KINDS = ("production", "cloze", "contrast")
+
+# Order in which decks enter circulation when new cards are introduced.
+# Chosen for a trip, not for linguistic tidiness: phrases you can deploy at a
+# counter beat register, and register beats grammar. Unlisted decks sort in
+# the middle. Only affects the ORDER of introduction, never whether a card is
+# eventually seen.
+DECK_PRIORITY: dict[str, int] = {
+    "travel_production": 0,
+    "peninsular_contrast": 1,
+    "grammar_repair": 3,
+}
+_DEFAULT_DECK_RANK = 2
+
 
 
 @dataclass(frozen=True)
@@ -46,6 +59,15 @@ class SchedRow:
     lapses: int
     state: str
     last_reviewed_at: datetime | None
+
+
+@dataclass(frozen=True)
+class DailyQueue:
+    items: tuple[tuple[Card, SchedRow], ...]
+    due_reviews: int
+    new_introduced: int
+    new_remaining: int
+    backlog: int
 
 
 @dataclass(frozen=True)
@@ -280,6 +302,146 @@ def due_cards(
         sched = _row_to_sched(row, prefix="sc_")
         results.append((card, sched))
     return results
+
+
+def _interleave_decks(
+    candidates: list[tuple[Card, SchedRow]], budget: int
+) -> list[tuple[Card, SchedRow]]:
+    """Pick `budget` new cards, round-robin across decks.
+
+    Two reasons not to just take the first `budget` by id. Alphabetical order
+    puts `gr-*` (grammar) ahead of `tv-*` (travel), which is backwards before
+    a trip. And draining one deck at a time would leave a whole deck
+    un-introduced until the final days, where the departure clamp gives it
+    almost no repetitions.
+
+    Round-robin in DECK_PRIORITY order means every deck starts on day one and
+    they finish at roughly the same time, and it interleaves material rather
+    than blocking it -- which is also the better way to practise.
+    """
+    if budget <= 0:
+        return []
+
+    by_deck: dict[str, list[tuple[Card, SchedRow]]] = {}
+    for item in candidates:
+        by_deck.setdefault(item[0].deck, []).append(item)
+
+    decks = sorted(by_deck, key=lambda d: (DECK_PRIORITY.get(d, _DEFAULT_DECK_RANK), d))
+    picked: list[tuple[Card, SchedRow]] = []
+    while len(picked) < budget and any(by_deck[d] for d in decks):
+        for d in decks:
+            if len(picked) >= budget:
+                break
+            if by_deck[d]:
+                picked.append(by_deck[d].pop(0))
+    return picked
+
+
+def new_cards_introduced_today(
+    conn: sqlite3.Connection, now: datetime, *, deck: str | None = None
+) -> int:
+    """Count of distinct cards whose earliest-ever review falls on `now`'s UTC day.
+
+    A card is "introduced" the day it is first reviewed, not the day it was
+    imported -- `MIN(reviewed_at)` per card_id is the source of truth.
+    """
+    day_start = now.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
+
+    query = "SELECT review.card_id AS card_id, MIN(review.reviewed_at) AS first_reviewed_at FROM review"
+    params: list = []
+    if deck is not None:
+        query += " JOIN card ON review.card_id = card.card_id WHERE card.deck = ?"
+        params.append(deck)
+    query += " GROUP BY review.card_id"
+
+    count = 0
+    for row in conn.execute(query, params).fetchall():
+        first_reviewed_at = datetime.fromisoformat(row["first_reviewed_at"])
+        if day_start <= first_reviewed_at < day_end:
+            count += 1
+    return count
+
+
+def daily_queue(
+    conn: sqlite3.Connection,
+    now: datetime,
+    *,
+    deck: str | None = None,
+    new_per_day: int = 20,
+    max_cards: int = 40,
+) -> DailyQueue:
+    """Build a daily-paced review queue: due reviews first, then capped new cards.
+
+    Reviews (state != 'new', due_at <= now) are never displaced by the
+    new-card cap -- they're selected in full, oldest due first, and only
+    `max_cards` can truncate them (recorded as `backlog`). New cards fill
+    whatever room is left, capped by `new_per_day` minus however many new
+    cards were already introduced today, ordered by card_id so the deck is
+    introduced in authoring order.
+    """
+    review_query = (
+        "SELECT card.*, sched.due_at AS sc_due_at, sched.interval_days AS sc_interval_days, "
+        "sched.ease AS sc_ease, sched.reps AS sc_reps, sched.lapses AS sc_lapses, "
+        "sched.state AS sc_state, sched.last_reviewed_at AS sc_last_reviewed_at "
+        "FROM card JOIN sched ON card.card_id = sched.card_id "
+        "WHERE sched.state != 'new' AND sched.due_at <= ?"
+    )
+    review_params: list = [_iso(now)]
+    if deck is not None:
+        review_query += " AND card.deck = ?"
+        review_params.append(deck)
+    review_query += " ORDER BY sched.due_at ASC"
+
+    reviews = [
+        (_row_to_card(row), _row_to_sched(row, prefix="sc_"))
+        for row in conn.execute(review_query, review_params).fetchall()
+    ]
+    due_reviews = len(reviews)
+
+    introduced_today = new_cards_introduced_today(conn, now, deck=deck)
+    new_budget = max(0, new_per_day - introduced_today)
+
+    new_cards: list[tuple[Card, SchedRow]] = []
+    if new_budget > 0:
+        new_query = (
+            "SELECT card.*, sched.due_at AS sc_due_at, sched.interval_days AS sc_interval_days, "
+            "sched.ease AS sc_ease, sched.reps AS sc_reps, sched.lapses AS sc_lapses, "
+            "sched.state AS sc_state, sched.last_reviewed_at AS sc_last_reviewed_at "
+            "FROM card JOIN sched ON card.card_id = sched.card_id "
+            "WHERE sched.state = 'new' AND sched.due_at <= ?"
+        )
+        new_params: list = [_iso(now)]
+        if deck is not None:
+            new_query += " AND card.deck = ?"
+            new_params.append(deck)
+        new_query += " ORDER BY card.card_id ASC"
+        candidates = [
+            (_row_to_card(row), _row_to_sched(row, prefix="sc_"))
+            for row in conn.execute(new_query, new_params).fetchall()
+        ]
+        new_cards = _interleave_decks(candidates, new_budget)
+
+    if due_reviews > max_cards:
+        backlog = due_reviews - max_cards
+        selected_reviews = reviews[:max_cards]
+        selected_new: list[tuple[Card, SchedRow]] = []
+    else:
+        backlog = 0
+        selected_reviews = reviews
+        remaining_capacity = max_cards - due_reviews
+        selected_new = new_cards[:remaining_capacity] if remaining_capacity > 0 else []
+
+    new_introduced = len(selected_new)
+    new_remaining = new_budget - new_introduced
+
+    return DailyQueue(
+        items=tuple(selected_reviews + selected_new),
+        due_reviews=due_reviews,
+        new_introduced=new_introduced,
+        new_remaining=new_remaining,
+        backlog=backlog,
+    )
 
 
 def get_card(conn: sqlite3.Connection, card_id: str) -> Card | None:

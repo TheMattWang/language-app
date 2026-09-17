@@ -20,10 +20,12 @@ correct Spanish is wrong is what makes people stop using the tool.
 from __future__ import annotations
 
 import argparse
+import sqlite3
 import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Sequence
 
 from drill import store
 from drill.grader import Verdict, grade as grade_attempt
@@ -133,25 +135,17 @@ def cmd_import(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_review(args: argparse.Namespace) -> int:
-    c = _color(sys.stdout.isatty() and not args.no_color)
-    conn = store.connect(args.db)
-    now = _now()
-    queue = store.due_cards(conn, now, deck=args.deck, limit=args.limit)
+def _run_review_loop(
+    conn: sqlite3.Connection,
+    queue: Sequence[tuple[store.Card, store.SchedRow]],
+    now: datetime,
+    c,
+) -> tuple[int, int]:
+    """Drive the interactive prompt/grade/reschedule loop over `queue`.
 
-    if not queue:
-        stats = store.deck_stats(conn, args.deck)
-        if stats.get("total", 0) == 0:
-            print("No cards yet. Import a deck first:")
-            print("  python -m drill import data/<deck>.jsonl")
-        else:
-            print(c("Nothing due. ¡Vale!", GREEN))
-            print(f"{DIM}{stats['total']} cards, {stats['new']} still new{RESET}")
-        conn.close()
-        return 0
-
-    print(f"{len(queue)} card(s) due. {DIM}Ctrl-C to stop; progress is saved.{RESET}\n")
-
+    Shared by `cmd_review` and `cmd_daily` so the review experience -- and
+    its scoring -- stays identical regardless of how the queue was built.
+    """
     correct = 0
     seen = 0
     try:
@@ -202,9 +196,69 @@ def cmd_review(args: argparse.Namespace) -> int:
     except KeyboardInterrupt:
         print("\n\nstopped.")
 
+    return correct, seen
+
+
+def cmd_review(args: argparse.Namespace) -> int:
+    c = _color(sys.stdout.isatty() and not args.no_color)
+    conn = store.connect(args.db)
+    now = _now()
+    queue = store.due_cards(conn, now, deck=args.deck, limit=args.limit)
+
+    if not queue:
+        stats = store.deck_stats(conn, args.deck)
+        if stats.get("total", 0) == 0:
+            print("No cards yet. Import a deck first:")
+            print("  python -m drill import data/<deck>.jsonl")
+        else:
+            print(c("Nothing due. ¡Vale!", GREEN))
+            print(f"{DIM}{stats['total']} cards, {stats['new']} still new{RESET}")
+        conn.close()
+        return 0
+
+    print(f"{len(queue)} card(s) due. {DIM}Ctrl-C to stop; progress is saved.{RESET}\n")
+
+    correct, seen = _run_review_loop(conn, queue, now, c)
+
     if seen:
         pct = 100.0 * correct / seen
         print(f"{correct}/{seen} correct ({pct:.0f}%)")
+    conn.close()
+    return 0
+
+
+def cmd_daily(args: argparse.Namespace) -> int:
+    c = _color(sys.stdout.isatty() and not args.no_color)
+    conn = store.connect(args.db)
+    now = _now()
+    queue = store.daily_queue(
+        conn, now, deck=args.deck, new_per_day=args.new, max_cards=args.max
+    )
+
+    if not queue.items:
+        stats = store.deck_stats(conn, args.deck)
+        if stats.get("total", 0) == 0:
+            print("No cards yet. Import a deck first:")
+            print("  python -m drill import data/<deck>.jsonl")
+        else:
+            print(c("Nothing to do right now. ¡Vale!", GREEN))
+        conn.close()
+        return 0
+
+    reviews_in_queue = len(queue.items) - queue.new_introduced
+    plan = f"Today: {reviews_in_queue} reviews + {queue.new_introduced} new ({args.max} max)"
+    if queue.backlog > 0:
+        plan += f" · {queue.backlog} in backlog"
+    print(plan)
+    print(f"{DIM}Ctrl-C to stop; progress is saved.{RESET}\n")
+
+    correct, seen = _run_review_loop(conn, list(queue.items), now, c)
+
+    if seen:
+        pct = 100.0 * correct / seen
+        print(f"{correct}/{seen} correct ({pct:.0f}%)")
+    if queue.backlog > 0:
+        print(f"{DIM}{queue.backlog} review(s) left in backlog -- run `drill daily` again to clear it.{RESET}")
     conn.close()
     return 0
 
@@ -313,6 +367,13 @@ def build_parser() -> argparse.ArgumentParser:
     pw.add_argument("--days", type=int, default=None)
     pw.add_argument("--limit", type=int, default=10)
     pw.set_defaults(func=cmd_weak)
+
+    pd = sub.add_parser("daily", help="daily-paced review: caps new cards/day, reviews always first")
+    pd.add_argument("--deck", default=None)
+    pd.add_argument("--new", type=int, default=20, help="new cards to introduce per day")
+    pd.add_argument("--max", type=int, default=40, help="max cards in a single session")
+    pd.add_argument("--no-color", action="store_true")
+    pd.set_defaults(func=cmd_daily)
     return p
 
 
