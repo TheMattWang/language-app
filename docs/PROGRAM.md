@@ -8,18 +8,18 @@ Departure ~Oct 3. Target: Peninsular Spanish, rusty intermediate, production-foc
 
 | Slot | Minutes | What |
 |---|---|---|
-| Anki | 15 | **Production cards only** — EN→ES, answer out loud before flipping |
+| `drill` | 15 | `python3 -m drill review` — EN→ES production, typed. Say it aloud as you type. |
 | Tutor *(4×/wk)* | 30 | The volume driver. Spain-based tutor. |
 | Voice roleplay *(off days)* | 20 | Claude/ChatGPT voice mode, same scenarios the tutor didn't reach |
 | Passive media | 20 | During a chore. **Peninsular accents only** — RTVE, Spanish podcasts. |
 
-Total ~55–65 min/day. If a day collapses, **Anki is the one that still happens.**
+Total ~55–65 min/day. If a day collapses, **the drill is the one that still happens.**
 
 ## Weekly shape
 
 - **Mon/Tue/Thu/Fri** — tutor
 - **Wed/Sat** — voice roleplay
-- **Sun** — review week's Anki failures, no new material
+- **Sun** — `python3 -m drill stats`, review the week's failures, no new material
 
 ## Tutor instructions (give these verbatim at the first session)
 
@@ -27,7 +27,7 @@ Total ~55–65 min/day. If a day collapses, **Anki is the one that still happens
 2. **Roleplay, don't chat.** Named scenario each session: restaurant, pharmacy, hotel check-in, train tickets, a complaint.
 3. **Correct register, not just grammar.** If *carro/celular/jugo* comes out, flag it — those mark you instantly.
 4. **Don't let me escape into English.** Make me paraphrase around the gap instead of supplying the word.
-5. Session 1 extra: **review the contrast deck** (~120 cards, 10 min of their time) — they are LLM-authored and need a native Spain speaker's eye.
+5. Session 1 extra: **review the contrast deck** — `data/peninsular_contrast.jsonl`, 120 cards, ~10 min of their time. These are LLM-authored and need a native Spain speaker's eye. Ask specifically about pc-084..pc-093 (slang), which dates fastest.
 
 ## Scenario checklist — can you do these without English?
 
@@ -43,9 +43,27 @@ Total ~55–65 min/day. If a day collapses, **Anki is the one that still happens
 ## Checkpoints
 
 - **Sep 24** — Are the tutor sessions actually happening? If not, the program has failed for reasons no deck fixes. Escalate or change tutors **now**, not Oct 1.
-- **Sep 30** — Mature-card retention ≥85% on authored decks.
+- **Sep 30** — Review accuracy ≥85% on the contrast deck (`drill stats`).
 - **Before departure** — *vosotros* produced spontaneously in an unscripted exchange. The clearest signal Peninsular register transferred.
 
 ## Taper: Sep 30 → Oct 3
 
 Travel-scenario roleplay and high-frequency review only. **No new material after Oct 2.**
+
+## The drill tool
+
+Replaces Anki. Local, no account, no install beyond this repo.
+
+```bash
+python3 -m drill import data/peninsular_contrast.jsonl   # once, and after any edit
+python3 -m drill review                                   # the daily 15 minutes
+python3 -m drill review --deck peninsular_contrast --limit 30
+python3 -m drill stats
+```
+
+Two things it does that a generic SRS will not:
+
+- **LatAm vocabulary is a hard reject that names the Spain alternative.** Type `el carro` and it tells you `el coche`, every time.
+- **vosotros is enforced** by listing the `ustedes` form in a card's reject list, so `tienen` cannot pass where `tenéis` is wanted. This is the forcing function that survived the cancelled app.
+
+Scheduling is SM-2 with a **departure clamp**: no card is ever scheduled past 2026-10-03, because an interval landing after the flight is a card you never see. The clamp disengages once the trip starts.
