@@ -8,12 +8,12 @@ Departure ~Oct 3. Target: Peninsular Spanish, rusty intermediate, production-foc
 
 | Slot | Minutes | What |
 |---|---|---|
-| `drill` | 15 | `python3 -m drill review` — EN→ES production, typed. Say it aloud as you type. |
+| `drill` | 20 | `python3 -m drill daily` — EN→ES production, typed. Say it aloud as you type. |
 | Tutor *(4×/wk)* | 30 | The volume driver. Spain-based tutor. |
 | Voice roleplay *(off days)* | 20 | Claude/ChatGPT voice mode, same scenarios the tutor didn't reach |
 | Passive media | 20 | During a chore. **Peninsular accents only** — RTVE, Spanish podcasts. |
 
-Total ~55–65 min/day. If a day collapses, **the drill is the one that still happens.**
+Total ~60–70 min/day. If a day collapses, **the drill is the one that still happens.**
 
 ## Weekly shape
 
@@ -89,6 +89,7 @@ Feedback is colour-coded: green exact, amber accepted-with-a-wobble (accent slip
 | `data/travel_production.jsonl` | 100 | Full utterances by scenario: hotel, airport, restaurant, bar, pharmacy, tickets, directions, shopping, problems, emergency |
 | `data/grammar_repair.jsonl` | 80 | ser/estar, preterite vs imperfect, subjunctive, por/para, clitics, gustar-type, common learner errors |
 | `data/numbers_listening.jsonl` | 85 | Cardinals, prices, time, dates, platform/floor numbers, quantities |
+| `data/cloze_grammar.jsonl` | 75 | Gap-fill: subjunctive triggers, preterite/imperfect in context, irregulars, por/para, collocations |
 
 ```bash
 python3 -m drill import data/*.jsonl
@@ -113,3 +114,17 @@ python3 -m drill listen --rate 150   # slower
 Uses the macOS `Mónica` voice (Peninsular). The English prompt appears only *after* you answer — seeing it first turns dictation back into translation. Type `r` alone to replay, up to three times, without it counting as an attempt. In the desktop app, `Ctrl-r` or the speaker button replays the current card.
 
 Pair this with `data/numbers_listening.jsonl`. Understanding *"cuarenta y siete con cincuenta"* at a till is harder than any grammar in the program, and it's the thing you'll face on day one.
+
+### Sprint — building speed, not knowledge
+
+```bash
+python3 -m drill sprint            # 10 cards x 3 rounds, 8s -> 6s -> 4s
+```
+
+The 4/3/2 technique from `research/01-pedagogy.md` §5 #9: the same cards, repeatedly, under a shrinking clock. Everything else here is untimed, so nothing trains the thing that actually fails at a bar counter — answering *fast enough*.
+
+It picks your slowest, least accurate seen cards, and **writes nothing**: no review rows, no schedule changes. An 8-second timeout marking a card you know perfectly well as forgotten would corrupt the scheduler, so a sprint is practice, never assessment.
+
+### A note on the daily load
+
+460 cards over the days remaining works out near 30 new per day, which is closer to **20 minutes than 15**. If that's too much, lower it — `python3 -m drill daily --new 20` — and accept that the last cards won't be introduced before the flight. The cards are ordered so the most useful decks go first, which is exactly what makes that an acceptable trade.

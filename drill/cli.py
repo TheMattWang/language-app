@@ -21,15 +21,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import re
+import select
 import sqlite3
+import statistics
 import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Sequence
 
-from drill import speech, store
+from drill import cloze, speech, store
 from drill.grader import Verdict, grade as grade_attempt
 from drill.scheduler import Grade, SchedState, review as reschedule
 
@@ -190,7 +193,14 @@ def _run_review_loop(
     try:
         for card, row in queue:
             seen += 1
-            print(f"{DIM}[{seen}/{len(queue)}]{RESET} {c(card.prompt_en, BOLD)}")
+            is_cz = cloze.is_cloze(card.kind)
+            cz = cloze.parse(card.prompt_en) if is_cz else None
+            if cz is not None:
+                print(f"{DIM}[{seen}/{len(queue)}]{RESET} {c(cloze.render_question(cz), BOLD)}")
+                if cz.meaning_en:
+                    print(f"  {DIM}{cz.meaning_en}{RESET}")
+            else:
+                print(f"{DIM}[{seen}/{len(queue)}]{RESET} {c(card.prompt_en, BOLD)}")
             started = time.monotonic()
             try:
                 attempt = input("  > ").strip()
@@ -209,7 +219,10 @@ def _run_review_loop(
             print(f"  {mark} {verdict.reason}")
             if verdict.detail:
                 print(f"    {c(verdict.detail, YELLOW)}")
-            if not verdict.accepted:
+            if cz is not None:
+                filled = cloze.render_filled(cz, attempt if verdict.accepted else card.accept[0])
+                print(f"    {c(filled, CYAN)}")
+            elif not verdict.accepted:
                 print(f"    {c(card.accept[0], CYAN)}")
             if card.note:
                 print(f"    {DIM}{card.note}{RESET}")
@@ -382,6 +395,189 @@ def cmd_listen(args: argparse.Namespace) -> int:
     if seen:
         pct = 100.0 * correct / seen
         print(f"{correct}/{seen} correct ({pct:.0f}%)")
+    conn.close()
+    return 0
+
+
+def _row_to_card(row: sqlite3.Row) -> store.Card:
+    """Same shape as `store._row_to_card` -- kept local rather than reaching
+    into store's private helper, since sprint's candidate query needs a
+    filter (`sched.state != 'new'`, no attempt-count floor) none of store's
+    public helpers expose."""
+    return store.Card(
+        card_id=row["card_id"],
+        deck=row["deck"],
+        kind=row["kind"],
+        prompt_en=row["prompt_en"],
+        accept=tuple(json.loads(row["accept_json"])),
+        reject=tuple(json.loads(row["reject_json"])),
+        note=row["note"],
+        tags=tuple(json.loads(row["tags_json"])),
+    )
+
+
+def _sprint_candidates(conn: sqlite3.Connection, deck: str | None, count: int) -> list[store.Card]:
+    """Pick up to `count` already-seen cards (`sched.state != 'new'`),
+    ranked slowest-median-latency-first with lowest-accuracy as the
+    tiebreak. A card with reviews but no recorded latency sorts as if
+    instant, so it never displaces a card with real slow-latency evidence;
+    a card with zero reviews (state changed without ever being graded --
+    shouldn't happen, but not load-bearing to assume it can't) sorts as if
+    perfectly accurate, for the same reason.
+
+    Deliberately does not reuse `store.hardest_cards`: that helper requires
+    >=2 review attempts per card, which would silently exclude a
+    once-seen card from "already seen" -- the wrong definition for sprint.
+    """
+    query = (
+        "SELECT card.* FROM card JOIN sched ON card.card_id = sched.card_id "
+        "WHERE sched.state != 'new'"
+    )
+    params: list = []
+    if deck is not None:
+        query += " AND card.deck = ?"
+        params.append(deck)
+
+    cards = {row["card_id"]: _row_to_card(row) for row in conn.execute(query, params).fetchall()}
+    if not cards:
+        return []
+
+    placeholders = ",".join("?" * len(cards))
+    review_rows = conn.execute(
+        f"SELECT card_id, accepted, latency_ms FROM review WHERE card_id IN ({placeholders})",
+        list(cards.keys()),
+    ).fetchall()
+
+    attempts: dict[str, int] = {}
+    misses: dict[str, int] = {}
+    latencies: dict[str, list[int]] = {}
+    for r in review_rows:
+        cid = r["card_id"]
+        attempts[cid] = attempts.get(cid, 0) + 1
+        if not r["accepted"]:
+            misses[cid] = misses.get(cid, 0) + 1
+        if r["latency_ms"] is not None:
+            latencies.setdefault(cid, []).append(r["latency_ms"])
+
+    def sort_key(cid: str) -> tuple[float, float]:
+        n = attempts.get(cid, 0)
+        accuracy = (n - misses.get(cid, 0)) / n if n else 1.0
+        lat = latencies.get(cid)
+        median_latency = statistics.median(lat) if lat else 0.0
+        return (-median_latency, accuracy)
+
+    ordered = sorted(cards.keys(), key=sort_key)
+    return [cards[cid] for cid in ordered[:count]]
+
+
+def _read_with_deadline(limit_s: float) -> tuple[str | None, int]:
+    """Read one line with a `limit_s` deadline, returning (answer, elapsed_ms).
+
+    `answer` is None on timeout. Uses `select.select` on stdin -- never
+    `signal.alarm`, never a thread -- so a slow answer times out cleanly
+    without disturbing the main thread's state. When stdin is not a TTY
+    (tests, pipes, CI) there is nothing to select on usefully, so this
+    falls back to a plain untimed `input()` and still records real latency;
+    that keeps the command testable and non-hanging without faking a
+    timeout that never really threatened to happen.
+    """
+    started = time.monotonic()
+    if not sys.stdin.isatty():
+        try:
+            line = input()
+        except EOFError:
+            line = ""
+        return line.strip(), int((time.monotonic() - started) * 1000)
+
+    ready, _, _ = select.select([sys.stdin], [], [], max(0.0, limit_s))
+    if not ready:
+        return None, int(limit_s * 1000)
+    line = sys.stdin.readline()
+    if line == "":  # EOF on a real TTY fd, e.g. piped-in Ctrl-D
+        return None, int((time.monotonic() - started) * 1000)
+    return line.strip(), int((time.monotonic() - started) * 1000)
+
+
+def cmd_sprint(args: argparse.Namespace) -> int:
+    """4/3/2 fluency drill (research/01-pedagogy.md §5 #9): the same cards,
+    repeated under a shrinking time limit, to train retrieval speed rather
+    than knowledge. Deliberately does not touch scheduling -- see the note
+    printed below -- so it is safe to run as often as wanted.
+    """
+    c = _color(sys.stdout.isatty() and not args.no_color)
+    conn = store.connect(args.db)
+
+    cards = _sprint_candidates(conn, args.deck, args.count)
+    if not cards:
+        print(
+            "No seen cards yet to sprint on. Sprint mode drills retrieval speed on "
+            "material you already know -- run `drill review` or `drill daily` first, "
+            "then come back."
+        )
+        conn.close()
+        return 0
+
+    if len(cards) < args.count:
+        print(
+            f"{DIM}Only {len(cards)} seen card(s) available (asked for {args.count}) -- "
+            f"sprinting with what you've got rather than padding with unseen material.{RESET}"
+        )
+
+    rng = random.Random(args.seed)
+    print(
+        f"{BOLD}Sprint{RESET}: {len(cards)} card(s) x {args.rounds} round(s). "
+        f"{DIM}Practice only -- nothing here is scheduled or logged to your review history.{RESET}\n"
+    )
+
+    round_summaries: list[tuple[int, float, int, int, float | None]] = []
+
+    for round_no in range(1, args.rounds + 1):
+        limit_s = max(2.0, args.start - args.step * (round_no - 1))
+        order = list(cards)
+        rng.shuffle(order)
+
+        print(f"{c(f'Round {round_no}', BOLD)} -- {limit_s:g}s per card")
+        correct = 0
+        latencies: list[int] = []
+        for i, card in enumerate(order, start=1):
+            print(f"  {DIM}[{i}/{len(order)}]{RESET} {card.prompt_en}")
+            answer, elapsed_ms = _read_with_deadline(limit_s)
+            latencies.append(elapsed_ms)
+            if answer is None:
+                print(f"    {c('timeout', RED)} -- {c(card.accept[0], CYAN)}")
+                continue
+            verdict = grade_attempt(answer, accept=card.accept, reject=card.reject)
+            if verdict.accepted:
+                correct += 1
+                print(f"    {c('correct', GREEN)}")
+            else:
+                print(f"    {c('miss', RED)} -- {c(card.accept[0], CYAN)}")
+
+        median_ms = statistics.median(latencies) if latencies else None
+        round_summaries.append((round_no, limit_s, correct, len(order), median_ms))
+        median_str = f"{median_ms / 1000:.1f}s" if median_ms is not None else "n/a"
+        print(f"  {correct}/{len(order)} correct, median {median_str}\n")
+
+    print(f"{BOLD}Summary{RESET}")
+    print(f"  {'round':<7}{'limit':>7}{'score':>8}{'median':>9}")
+    for round_no, limit_s, correct, seen_n, median_ms in round_summaries:
+        median_str = f"{median_ms / 1000:.1f}s" if median_ms is not None else "n/a"
+        print(f"  {round_no:<7}{limit_s:>6g}s{f'{correct}/{seen_n}':>8}{median_str:>9}")
+
+    first_median = round_summaries[0][4]
+    last_median = round_summaries[-1][4]
+    if first_median is not None and last_median is not None:
+        delta_s = (first_median - last_median) / 1000
+        if delta_s > 0:
+            print(f"\nFaster: median dropped {delta_s:.1f}s from round 1 to round {args.rounds}.")
+        elif delta_s < 0:
+            print(
+                f"\nSlower: median rose {-delta_s:.1f}s from round 1 to round {args.rounds} -- "
+                "that's the honest read, not encouragement."
+            )
+        else:
+            print(f"\nNo change in median response time between round 1 and round {args.rounds}.")
+
     conn.close()
     return 0
 
@@ -649,7 +845,7 @@ def build_parser() -> argparse.ArgumentParser:
     pg = sub.add_parser("gui", help="open the desktop app")
     pg.add_argument("--deck", default=None)
     pg.add_argument("--limit", type=int, default=40)
-    pg.add_argument("--new", type=int, default=25, help="new cards to introduce per day")
+    pg.add_argument("--new", type=int, default=30, help="new cards to introduce per day")
     pg.set_defaults(func=cmd_gui)
 
     pw = sub.add_parser("weak", help="weak-area analytics: what to drill, what to tell your tutor")
@@ -660,7 +856,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     pd = sub.add_parser("daily", help="daily-paced review: caps new cards/day, reviews always first")
     pd.add_argument("--deck", default=None)
-    pd.add_argument("--new", type=int, default=25, help="new cards to introduce per day")
+    pd.add_argument("--new", type=int, default=30, help="new cards to introduce per day")
     pd.add_argument("--max", type=int, default=40, help="max cards in a single session")
     pd.add_argument("--no-color", action="store_true")
     pd.set_defaults(func=cmd_daily)
@@ -672,6 +868,19 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--replays", type=int, default=3, help="replays allowed per card")
     pl.add_argument("--no-color", action="store_true")
     pl.set_defaults(func=cmd_listen)
+
+    psp = sub.add_parser(
+        "sprint",
+        help="timed 4/3/2 fluency drill: same cards, shrinking time limit; never reschedules",
+    )
+    psp.add_argument("--deck", default=None)
+    psp.add_argument("--count", type=int, default=10, help="number of already-seen cards to sprint on")
+    psp.add_argument("--rounds", type=int, default=3)
+    psp.add_argument("--start", type=float, default=8.0, help="seconds per card in round 1")
+    psp.add_argument("--step", type=float, default=2.0, help="seconds shaved off each round, floored at 2s")
+    psp.add_argument("--seed", type=int, default=None, help="shuffle seed (default: system entropy)")
+    psp.add_argument("--no-color", action="store_true")
+    psp.set_defaults(func=cmd_sprint)
     return p
 
 

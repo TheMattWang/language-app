@@ -26,7 +26,7 @@ from pathlib import Path
 from tkinter import font as tkfont
 from tkinter import ttk
 
-from drill import speech, store
+from drill import cloze, speech, store
 from drill.grader import grade as grade_attempt
 from drill.scheduler import Grade, SchedState, review as reschedule
 
@@ -54,7 +54,7 @@ _LAYER_GRADE = {"L2_exact": Grade.GOOD, "L3_accent": Grade.HARD, "L4_close": Gra
 class DrillApp:
     def __init__(
         self, root: tk.Tk, db_path: Path, deck: str | None, limit: int,
-        new_per_day: int = 25,
+        new_per_day: int = 30,
     ) -> None:
         self.root = root
         self.conn = store.connect(db_path)
@@ -70,6 +70,7 @@ class DrillApp:
         self.awaiting_next = False
         self.started = 0.0
         self.view = "drill"
+        self._cloze: cloze.Cloze | None = None
 
         self._build_ui()
         self._refresh_deck_choices()
@@ -137,6 +138,15 @@ class DrillApp:
             wraplength=600, justify="left",
         )
         self.lbl_prompt.pack(anchor="w", padx=24, pady=(10, 18), fill="x")
+
+        # English meaning for a cloze card -- dimmed, shown below the gapped
+        # Spanish sentence, before the learner answers. Empty (and takes no
+        # visible space) for every other card kind.
+        self.lbl_meaning = tk.Label(
+            body, text="", font=self.f_small, fg=MUTED, bg=CARD,
+            wraplength=600, justify="left",
+        )
+        self.lbl_meaning.pack(anchor="w", padx=24, pady=(0, 8), fill="x")
 
         self.entry = tk.Entry(
             body, font=self.f_entry, bg="#3a3a3c", fg=FG, insertbackground=FG,
@@ -233,7 +243,9 @@ class DrillApp:
 
     def _show_empty(self) -> None:
         stats = store.deck_stats(self.conn, self.deck)
+        self._cloze = None
         self.lbl_tag.config(text="")
+        self.lbl_meaning.config(text="")
         if stats.get("total", 0) == 0:
             self.lbl_prompt.config(text="No hay tarjetas")
             self.lbl_verdict.config(
@@ -264,7 +276,14 @@ class DrillApp:
             text=f"{card.deck}  ·  {self.index + 1}/{len(self.queue)}{plan}"
         )
         self.lbl_tag.config(text="  ".join(f"#{t}" for t in card.tags))
-        self.lbl_prompt.config(text=card.prompt_en)
+        if cloze.is_cloze(card.kind):
+            self._cloze = cloze.parse(card.prompt_en)
+            self.lbl_prompt.config(text=cloze.render_question(self._cloze))
+            self.lbl_meaning.config(text=self._cloze.meaning_en or "")
+        else:
+            self._cloze = None
+            self.lbl_prompt.config(text=card.prompt_en)
+            self.lbl_meaning.config(text="")
         self.lbl_verdict.config(text="")
         self.lbl_target.config(text="")
         self.lbl_note.config(text="")
@@ -314,9 +333,18 @@ class DrillApp:
             colour = WARN
         self.entry.config(highlightbackground=colour)
         self.lbl_verdict.config(text=verdict.reason, fg=colour)
-        self.lbl_target.config(
-            text="" if verdict.accepted else card.accept[0]
-        )
+        if self._cloze is not None:
+            # The whole point of a cloze is reading the completed sentence,
+            # win or lose -- fill with what they typed when accepted, with
+            # the reference answer when not.
+            filled = cloze.render_filled(
+                self._cloze, attempt if verdict.accepted else card.accept[0]
+            )
+            self.lbl_target.config(text=filled)
+        else:
+            self.lbl_target.config(
+                text="" if verdict.accepted else card.accept[0]
+            )
         note_bits = [b for b in (verdict.detail, card.note) if b]
         self.lbl_note.config(text="\n".join(note_bits))
 
@@ -529,7 +557,7 @@ class DrillApp:
 
 def run(
     db_path: Path | None = None, deck: str | None = None, limit: int = 40,
-    new_per_day: int = 25,
+    new_per_day: int = 30,
 ) -> int:
     root = tk.Tk()
     app = DrillApp(root, db_path or store.DEFAULT_DB, deck, limit, new_per_day)

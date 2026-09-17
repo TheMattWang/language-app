@@ -89,18 +89,19 @@ def test_single_deck_still_works(tmp_path: Path) -> None:
 
 
 def test_whole_collection_fits_before_departure(tmp_path: Path) -> None:
-    """The whole collection over the 17 days remaining on 2026-09-16.
+    """The whole collection over the 16 days remaining on 2026-09-17.
 
     Re-check this whenever a deck is added: every new deck makes the
     arithmetic tighter, and silently not reaching the last cards before the
     flight is the failure this asserts against.
     """
     conn = _seed(tmp_path, {"travel_production": 100, "peninsular_contrast": 120,
-                            "grammar_repair": 80, "numbers_listening": 85})
+                            "grammar_repair": 80, "numbers_listening": 85,
+                            "cloze_grammar": 75})
     introduced = 0
     day = NOW
-    for _ in range(17):
-        q = store.daily_queue(conn, day, new_per_day=25)
+    for _ in range(16):
+        q = store.daily_queue(conn, day, new_per_day=30)
         introduced += q.new_introduced
         # mark them introduced so tomorrow offers the next batch
         for card, _row in q.items:
@@ -115,7 +116,7 @@ def test_whole_collection_fits_before_departure(tmp_path: Path) -> None:
             )
         conn.commit()
         day += timedelta(days=1)
-    assert introduced >= 385, f"only {introduced}/385 cards would be seen before the flight"
+    assert introduced >= 460, f"only {introduced}/460 cards would be seen before the flight"
     conn.close()
 
 

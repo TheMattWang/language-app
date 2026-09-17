@@ -32,6 +32,7 @@ DECK_PRIORITY: dict[str, int] = {
     "travel_production": 0,
     "numbers_listening": 1,
     "peninsular_contrast": 1,
+    "cloze_grammar": 2,
     "grammar_repair": 3,
 }
 _DEFAULT_DECK_RANK = 2
@@ -369,7 +370,7 @@ def daily_queue(
     now: datetime,
     *,
     deck: str | None = None,
-    new_per_day: int = 25,
+    new_per_day: int = 30,
     max_cards: int = 40,
 ) -> DailyQueue:
     """Build a daily-paced review queue: due reviews first, then capped new cards.
