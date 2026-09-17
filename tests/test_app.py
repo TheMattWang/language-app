@@ -119,3 +119,46 @@ def test_empty_deck_shows_guidance(tmp_path: Path) -> None:
     assert "No hay tarjetas" in a.lbl_prompt.cget("text")
     a.close()
     root.destroy()
+
+
+def test_gui_respects_the_daily_new_card_cap(tmp_path: Path) -> None:
+    """Reopening the window must not introduce a fresh batch of new cards.
+
+    The GUI originally called due_cards, which has no per-day cap, so every
+    launch pulled another `limit` new cards regardless of how many had
+    already been introduced that day.
+    """
+    rows = [
+        {
+            "id": f"c{i:03d}", "deck": "t", "kind": "production",
+            "prompt_en": f"prompt {i}", "accept": [f"respuesta {i}"],
+            "reject": [], "note": None, "tags": [],
+        }
+        for i in range(40)
+    ]
+    deck = tmp_path / "many.jsonl"
+    deck.write_text("\n".join(json.dumps(r) for r in rows), encoding="utf-8")
+    conn = store.connect(tmp_path / "many.db")
+    store.import_jsonl(conn, deck)
+    conn.close()
+
+    try:
+        root = tk.Tk()
+    except tk.TclError:  # pragma: no cover
+        pytest.skip("no display")
+    root.withdraw()
+
+    first = DrillApp(root, tmp_path / "many.db", deck=None, limit=40, new_per_day=5)
+    assert len(first.queue) == 5, f"cap ignored on first open: {len(first.queue)}"
+    for _ in range(5):
+        first.entry.delete(0, tk.END)
+        first.entry.insert(0, "respuesta 0")
+        first._on_enter()
+        first._on_enter()
+    first.close()
+
+    second = DrillApp(root, tmp_path / "many.db", deck=None, limit=40, new_per_day=5)
+    assert second.plan is not None
+    assert second.plan.new_introduced == 0, "reopening introduced more new cards"
+    second.close()
+    root.destroy()

@@ -335,7 +335,7 @@ def cmd_gui(args: argparse.Namespace) -> int:
         print(f"desktop app unavailable: {exc}", file=sys.stderr)
         print("tkinter is missing from this Python. Use `drill review` instead.", file=sys.stderr)
         return 1
-    return run(db_path=args.db, deck=args.deck, limit=args.limit)
+    return run(db_path=args.db, deck=args.deck, limit=args.limit, new_per_day=args.new)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -359,7 +359,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     pg = sub.add_parser("gui", help="open the desktop app")
     pg.add_argument("--deck", default=None)
-    pg.add_argument("--limit", type=int, default=20)
+    pg.add_argument("--limit", type=int, default=40)
+    pg.add_argument("--new", type=int, default=20, help="new cards to introduce per day")
     pg.set_defaults(func=cmd_gui)
 
     pw = sub.add_parser("weak", help="weak-area analytics: what to drill, what to tell your tutor")

@@ -52,11 +52,16 @@ _LAYER_GRADE = {"L2_exact": Grade.GOOD, "L3_accent": Grade.HARD, "L4_close": Gra
 
 
 class DrillApp:
-    def __init__(self, root: tk.Tk, db_path: Path, deck: str | None, limit: int) -> None:
+    def __init__(
+        self, root: tk.Tk, db_path: Path, deck: str | None, limit: int,
+        new_per_day: int = 20,
+    ) -> None:
         self.root = root
         self.conn = store.connect(db_path)
         self.deck = deck
         self.limit = limit
+        self.new_per_day = new_per_day
+        self.plan: store.DailyQueue | None = None
 
         self.queue: list[tuple[store.Card, store.SchedRow]] = []
         self.index = 0
@@ -163,7 +168,15 @@ class DrillApp:
     # --- queue ------------------------------------------------------------
 
     def _load_queue(self) -> None:
-        self.queue = store.due_cards(self.conn, _now(), deck=self.deck, limit=self.limit)
+        # Same pacing as `drill daily`. Using due_cards here would re-introduce
+        # a fresh batch of new cards every time the window is opened, with no
+        # per-day cap -- which is the wall this pacing exists to prevent.
+        q = store.daily_queue(
+            self.conn, _now(), deck=self.deck, new_per_day=self.new_per_day,
+            max_cards=self.limit,
+        )
+        self.queue = list(q.items)
+        self.plan = q
         self.index = 0
         if not self.queue:
             self._show_empty()
@@ -195,7 +208,13 @@ class DrillApp:
     def _show_card(self) -> None:
         card, _row = self.queue[self.index]
         self.awaiting_next = False
-        self.lbl_deck.config(text=f"{card.deck}  ·  {self.index + 1}/{len(self.queue)}")
+        plan = ""
+        if self.plan is not None and self.plan.new_introduced:
+            reviews = len(self.queue) - self.plan.new_introduced
+            plan = f"  ·  {reviews} repaso + {self.plan.new_introduced} nuevas"
+        self.lbl_deck.config(
+            text=f"{card.deck}  ·  {self.index + 1}/{len(self.queue)}{plan}"
+        )
         self.lbl_tag.config(text="  ".join(f"#{t}" for t in card.tags))
         self.lbl_prompt.config(text=card.prompt_en)
         self.lbl_verdict.config(text="")
@@ -299,7 +318,10 @@ class DrillApp:
             text=f"{self.correct} de {self.answered} correctas ({pct:.0f}%)", fg=FG
         )
         self.lbl_target.config(text="")
-        self.lbl_note.config(text="Cierra la ventana o vuelve a abrir para más.")
+        tail = "Cierra la ventana o vuelve a abrir para más."
+        if self.plan is not None and self.plan.backlog:
+            tail = f"Quedan {self.plan.backlog} repasos pendientes — vuelve a abrir."
+        self.lbl_note.config(text=tail)
         self.entry.pack_forget()
         self.bar["value"] = 100
 
@@ -310,9 +332,12 @@ class DrillApp:
             pass
 
 
-def run(db_path: Path | None = None, deck: str | None = None, limit: int = 20) -> int:
+def run(
+    db_path: Path | None = None, deck: str | None = None, limit: int = 40,
+    new_per_day: int = 20,
+) -> int:
     root = tk.Tk()
-    app = DrillApp(root, db_path or store.DEFAULT_DB, deck, limit)
+    app = DrillApp(root, db_path or store.DEFAULT_DB, deck, limit, new_per_day)
 
     def on_close() -> None:
         app.close()
