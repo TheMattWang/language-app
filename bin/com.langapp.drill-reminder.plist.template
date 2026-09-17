@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Daily drill reminder. NOT installed automatically.
+     Install:
+       sed "s|__REPO__|$PWD|" bin/com.langapp.drill-reminder.plist.template \
+         > ~/Library/LaunchAgents/com.langapp.drill-reminder.plist
+       launchctl load ~/Library/LaunchAgents/com.langapp.drill-reminder.plist
+     Remove:
+       launchctl unload ~/Library/LaunchAgents/com.langapp.drill-reminder.plist
+       rm ~/Library/LaunchAgents/com.langapp.drill-reminder.plist
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.langapp.drill-reminder</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__REPO__/bin/drill-reminder.sh</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
+  <key>EnvironmentVariables</key>
+  <dict><key>TZ</key><string>America/Los_Angeles</string></dict>
+  <key>StandardOutPath</key><string>/tmp/drill-reminder.log</string>
+  <key>StandardErrorPath</key><string>/tmp/drill-reminder.log</string>
+  <key>RunAtLoad</key><false/>
+</dict>
+</plist>
