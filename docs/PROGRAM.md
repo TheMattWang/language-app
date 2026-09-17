@@ -87,7 +87,17 @@ Feedback is colour-coded: green exact, amber accepted-with-a-wobble (accent slip
 |---|---|---|
 | `data/peninsular_contrast.jsonl` | 120 | LatAm↔Spain lexicon, vosotros, false friends, colloquial |
 | `data/travel_production.jsonl` | 100 | Full utterances by scenario: hotel, airport, restaurant, bar, pharmacy, tickets, directions, shopping, problems, emergency |
+| `data/grammar_repair.jsonl` | 80 | ser/estar, preterite vs imperfect, subjunctive, por/para, clitics, gustar-type, common learner errors |
 
 ```bash
 python3 -m drill import data/*.jsonl
 ```
+
+### Finding your weak spots
+
+```bash
+python3 -m drill weak              # weakest tags + most-missed cards
+python3 -m drill weak --days 7     # just this week
+```
+
+Run it before each tutor session and bring the two tags it names — that's what `docs/TUTOR.md` means by the Sep 24 checkpoint. It refuses to rank until it has ≥3 attempts per tag, so early output saying "not enough history" is correct, not broken.
