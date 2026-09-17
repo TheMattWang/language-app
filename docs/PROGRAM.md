@@ -67,3 +67,27 @@ Two things it does that a generic SRS will not:
 - **vosotros is enforced** by listing the `ustedes` form in a card's reject list, so `tienen` cannot pass where `tenéis` is wanted. This is the forcing function that survived the cancelled app.
 
 Scheduling is SM-2 with a **departure clamp**: no card is ever scheduled past 2026-10-03, because an interval landing after the flight is a card you never see. The clamp disengages once the trip starts.
+
+### Desktop app
+
+Double-click **`bin/Drill.command`** in Finder, or:
+
+```bash
+python3 -m drill gui
+python3 -m drill gui --deck travel_production --limit 30
+```
+
+Native window, no install, no account. **Enter does everything** — type, Enter to answer, Enter for the next card; you never need the mouse. The **accent bar** (`á é í ó ú ñ ü ¿ ¡`) is one click or `Ctrl-1..9`, because the grader never folds ñ and a US keyboard makes that painful. Escape closes.
+
+Feedback is colour-coded: green exact, amber accepted-with-a-wobble (accent slip or near miss), red wrong — and a red answer always shows the Spain form you wanted.
+
+### Decks
+
+| File | Cards | What |
+|---|---|---|
+| `data/peninsular_contrast.jsonl` | 120 | LatAm↔Spain lexicon, vosotros, false friends, colloquial |
+| `data/travel_production.jsonl` | 100 | Full utterances by scenario: hotel, airport, restaurant, bar, pharmacy, tickets, directions, shopping, problems, emergency |
+
+```bash
+python3 -m drill import data/*.jsonl
+```

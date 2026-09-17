@@ -220,6 +220,16 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_gui(args: argparse.Namespace) -> int:
+    try:
+        from drill.app import run
+    except ImportError as exc:  # tkinter absent from some Python builds
+        print(f"desktop app unavailable: {exc}", file=sys.stderr)
+        print("tkinter is missing from this Python. Use `drill review` instead.", file=sys.stderr)
+        return 1
+    return run(db_path=args.db, deck=args.deck, limit=args.limit)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="drill", description="Spanish production drill")
     p.add_argument("--db", type=Path, default=store.DEFAULT_DB, help="database path")
@@ -238,6 +248,11 @@ def build_parser() -> argparse.ArgumentParser:
     ps = sub.add_parser("stats", help="show deck counts")
     ps.add_argument("--deck", default=None)
     ps.set_defaults(func=cmd_stats)
+
+    pg = sub.add_parser("gui", help="open the desktop app")
+    pg.add_argument("--deck", default=None)
+    pg.add_argument("--limit", type=int, default=20)
+    pg.set_defaults(func=cmd_gui)
     return p
 
 
