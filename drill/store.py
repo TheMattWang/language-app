@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import statistics
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -53,6 +54,17 @@ class ImportResult:
     updated: int
     unchanged: int
     errors: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class TagStat:
+    tag: str
+    attempts: int
+    correct: int
+    accuracy: float
+    cards: int
+    lapses: int
+    median_latency_ms: int | None
 
 
 def connect(db_path: Path = DEFAULT_DB) -> sqlite3.Connection:
@@ -364,3 +376,113 @@ def deck_stats(conn: sqlite3.Connection, deck: str | None = None) -> dict[str, i
         "due_now": due_now,
         "lapsed": lapsed_count,
     }
+
+
+def tag_performance(
+    conn: sqlite3.Connection, *, deck: str | None = None, since: datetime | None = None
+) -> list[TagStat]:
+    """Per-tag accuracy, one row per tag carried by any matching card.
+
+    A review counts toward every tag on its card. `tags_json` is expanded in
+    Python (not SQL) since it's a JSON array. `cards` and `lapses` are
+    computed over all matching cards regardless of `since`; `attempts`,
+    `correct`, and `median_latency_ms` are computed only over reviews within
+    `since` (if given). Tags with zero attempts still appear -- callers that
+    want to hide thin data (e.g. the CLI) filter on `attempts`.
+    """
+    card_query = (
+        "SELECT card.card_id AS card_id, card.tags_json AS tags_json, "
+        "sched.lapses AS lapses FROM card JOIN sched ON card.card_id = sched.card_id"
+    )
+    card_params: list = []
+    if deck is not None:
+        card_query += " WHERE card.deck = ?"
+        card_params.append(deck)
+
+    card_tags: dict[str, list[str]] = {}
+    tag_cards: dict[str, set[str]] = {}
+    tag_lapses: dict[str, int] = {}
+    for row in conn.execute(card_query, card_params).fetchall():
+        card_id = row["card_id"]
+        tags = json.loads(row["tags_json"])
+        card_tags[card_id] = tags
+        for tag in tags:
+            tag_cards.setdefault(tag, set()).add(card_id)
+            tag_lapses[tag] = tag_lapses.get(tag, 0) + row["lapses"]
+
+    review_query = (
+        "SELECT review.card_id AS card_id, review.accepted AS accepted, "
+        "review.latency_ms AS latency_ms FROM review "
+        "JOIN card ON review.card_id = card.card_id"
+    )
+    review_clauses: list[str] = []
+    review_params: list = []
+    if deck is not None:
+        review_clauses.append("card.deck = ?")
+        review_params.append(deck)
+    if since is not None:
+        review_clauses.append("review.reviewed_at >= ?")
+        review_params.append(_iso(since))
+    if review_clauses:
+        review_query += " WHERE " + " AND ".join(review_clauses)
+
+    tag_attempts: dict[str, int] = {}
+    tag_correct: dict[str, int] = {}
+    tag_latencies: dict[str, list[int]] = {}
+    for row in conn.execute(review_query, review_params).fetchall():
+        tags = card_tags.get(row["card_id"], [])
+        for tag in tags:
+            tag_attempts[tag] = tag_attempts.get(tag, 0) + 1
+            if row["accepted"]:
+                tag_correct[tag] = tag_correct.get(tag, 0) + 1
+            if row["latency_ms"] is not None:
+                tag_latencies.setdefault(tag, []).append(row["latency_ms"])
+
+    stats: list[TagStat] = []
+    for tag, cards in tag_cards.items():
+        attempts = tag_attempts.get(tag, 0)
+        correct = tag_correct.get(tag, 0)
+        accuracy = correct / attempts if attempts > 0 else 0.0
+        latencies = tag_latencies.get(tag)
+        median_latency_ms = int(round(statistics.median(latencies))) if latencies else None
+        stats.append(
+            TagStat(
+                tag=tag,
+                attempts=attempts,
+                correct=correct,
+                accuracy=accuracy,
+                cards=len(cards),
+                lapses=tag_lapses.get(tag, 0),
+                median_latency_ms=median_latency_ms,
+            )
+        )
+
+    stats.sort(key=lambda t: (t.accuracy, -t.attempts))
+    return stats
+
+
+def hardest_cards(
+    conn: sqlite3.Connection, *, deck: str | None = None, limit: int = 10
+) -> list[tuple[Card, int, int]]:
+    """(card, attempts, misses) for cards with >=2 attempts, worst first."""
+    query = (
+        "SELECT card.*, COUNT(review.review_id) AS attempts, "
+        "SUM(CASE WHEN review.accepted = 0 THEN 1 ELSE 0 END) AS misses "
+        "FROM card JOIN review ON card.card_id = review.card_id"
+    )
+    params: list = []
+    if deck is not None:
+        query += " WHERE card.deck = ?"
+        params.append(deck)
+    query += (
+        " GROUP BY card.card_id HAVING COUNT(review.review_id) >= 2"
+        " ORDER BY misses DESC, "
+        "(CAST(attempts - misses AS REAL) / attempts) ASC LIMIT ?"
+    )
+    params.append(limit)
+
+    results: list[tuple[Card, int, int]] = []
+    for row in conn.execute(query, params).fetchall():
+        card = _row_to_card(row)
+        results.append((card, row["attempts"], row["misses"]))
+    return results

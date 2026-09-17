@@ -22,7 +22,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from drill import store
@@ -220,6 +220,60 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_weak(args: argparse.Namespace) -> int:
+    conn = store.connect(args.db)
+    since = _now() - timedelta(days=args.days) if args.days else None
+    tag_stats = store.tag_performance(conn, deck=args.deck, since=since)
+    hard_cards = store.hardest_cards(conn, deck=args.deck, limit=args.limit)
+
+    label = args.deck or "all decks"
+    window = f"last {args.days}d" if args.days else "all history"
+    print(f"{BOLD}Weak areas -- {label} ({window}){RESET}\n")
+
+    eligible = [t for t in tag_stats if t.attempts >= 3]
+    hidden = len(tag_stats) - len(eligible)
+    # Only the weakest few are actionable. Printing all ~30 tags turns a
+    # priority list back into a data dump, which is what it exists to avoid.
+    shown = eligible[: args.limit]
+
+    print(f"{BOLD}Weakest tags{RESET}")
+    if not eligible:
+        print(f"  {DIM}Not enough review history yet (need >=3 attempts per tag).{RESET}")
+    else:
+        print(f"  {'tag':<20}{'acc':>6}  {'correct/attempts':>17}  {'cards':>6}")
+        for t in shown:
+            acc_pct = f"{t.accuracy * 100:.0f}%"
+            ratio = f"{t.correct}/{t.attempts}"
+            print(f"  {t.tag:<20}{acc_pct:>6}  {ratio:>17}  {t.cards:>6}")
+        if len(eligible) > len(shown):
+            print(f"  {DIM}({len(eligible) - len(shown)} more; --limit to see them){RESET}")
+        if hidden:
+            print(f"  {DIM}({hidden} tag(s) hidden for lack of data: fewer than 3 attempts){RESET}")
+
+    print(f"\n{BOLD}Hardest cards{RESET}")
+    if not hard_cards:
+        print(f"  {DIM}Not enough review history yet (need >=2 attempts per card).{RESET}")
+    else:
+        for card, attempts, misses in hard_cards:
+            prompt = card.prompt_en
+            if len(prompt) > 40:
+                prompt = prompt[:37] + "..."
+            ratio = f"{misses}/{attempts}"
+            print(f"  {prompt:<40}  {ratio:>6}  {card.accept[0]}")
+
+    print()
+    if len(eligible) >= 2:
+        worst_two = [t.tag for t in eligible[:2]]
+        print(f"Tell your tutor: focus on {', '.join(worst_two)}.")
+    elif len(eligible) == 1:
+        print(f"Tell your tutor: focus on {eligible[0].tag} (not enough data yet for a second tag).")
+    else:
+        print("Not enough review history yet to tell your tutor anything useful -- keep drilling.")
+
+    conn.close()
+    return 0
+
+
 def cmd_gui(args: argparse.Namespace) -> int:
     try:
         from drill.app import run
@@ -253,6 +307,12 @@ def build_parser() -> argparse.ArgumentParser:
     pg.add_argument("--deck", default=None)
     pg.add_argument("--limit", type=int, default=20)
     pg.set_defaults(func=cmd_gui)
+
+    pw = sub.add_parser("weak", help="weak-area analytics: what to drill, what to tell your tutor")
+    pw.add_argument("--deck", default=None)
+    pw.add_argument("--days", type=int, default=None)
+    pw.add_argument("--limit", type=int, default=10)
+    pw.set_defaults(func=cmd_weak)
     return p
 
 
