@@ -20,6 +20,8 @@ correct Spanish is wrong is what makes people stop using the tool.
 from __future__ import annotations
 
 import argparse
+import json
+import re
 import sqlite3
 import sys
 import time
@@ -263,6 +265,162 @@ def cmd_daily(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_existing_cards(path: Path) -> list[dict]:
+    """Best-effort parse of a card JSONL file. Malformed lines are skipped --
+    this is only used to compute the next id and check for collisions, not
+    to validate the file."""
+    if not path.exists():
+        return []
+    cards = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            cards.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return cards
+
+
+def _next_card_id(prefix: str, existing: list[dict]) -> str:
+    """<prefix>-NNN, scanning `existing` for the highest existing number
+    under that prefix so ids never collide on repeated runs."""
+    highest = 0
+    needle = f"{prefix}-"
+    for c in existing:
+        cid = str(c.get("id", ""))
+        if cid.startswith(needle):
+            suffix = cid[len(needle):]
+            if suffix.isdigit():
+                highest = max(highest, int(suffix))
+    return f"{prefix}-{highest + 1:03d}"
+
+
+def _offending_reject(verdict: Verdict, reject: Sequence[str]) -> str | None:
+    """Pull the reject entry that made a card reject its own accept form,
+    from the grader's L1_banned detail message (`«word» es de ...`)."""
+    if not verdict.detail:
+        return None
+    m = re.search(r"«([^»]+)»", verdict.detail)
+    if not m:
+        return None
+    word = m.group(1)
+    for r in reject:
+        if r.strip() == word:
+            return r
+    return word
+
+
+def _prompt_add_interactive() -> tuple[str, list[str], list[str], str | None, list[str]]:
+    prompt_en = input("English prompt: ").strip()
+    first_accept = input("Spanish answer: ").strip()
+    accept = [first_accept] if first_accept else []
+    print("Additional accepted forms (blank line to finish):")
+    while True:
+        extra = input("  + ").strip()
+        if not extra:
+            break
+        accept.append(extra)
+    print("Forms to reject, e.g. a LatAm word (blank line to finish):")
+    reject: list[str] = []
+    while True:
+        bad = input("  - ").strip()
+        if not bad:
+            break
+        reject.append(bad)
+    note = input("Note (optional): ").strip() or None
+    tags_raw = input("Tags, comma-separated (optional): ").strip()
+    tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
+    return prompt_en, accept, reject, note, tags
+
+
+def cmd_add(args: argparse.Namespace) -> int:
+    """Capture a single card from a tutor session and drop it straight into
+    the drillable deck -- see docs/TUTOR.md: a correction not turned into a
+    card is a correction made again in Spain."""
+    if args.prompt is not None:
+        prompt_en = args.prompt.strip()
+        accept = [a.strip() for a in (args.accept or []) if a.strip()]
+        reject = [r.strip() for r in (args.reject or []) if r.strip()]
+        note = args.note.strip() if args.note else None
+        tags = [t.strip() for t in args.tags.split(",") if t.strip()] if args.tags else []
+    else:
+        prompt_en, accept, reject, note, tags = _prompt_add_interactive()
+
+    if not prompt_en:
+        print("error: prompt cannot be empty", file=sys.stderr)
+        return 1
+    if not accept:
+        print("error: at least one accepted form is required", file=sys.stderr)
+        return 1
+
+    verdict = grade_attempt(accept[0], accept=accept, reject=reject)
+    if not verdict.accepted:
+        print(
+            f"error: this card rejects its own answer ({verdict.layer}): {verdict.reason}",
+            file=sys.stderr,
+        )
+        if verdict.layer == "L1_banned":
+            offending = _offending_reject(verdict, reject)
+            if offending is not None:
+                print(
+                    f"  the reject entry {offending!r} also matches the accept "
+                    "form -- the card would be unanswerable. Remove or fix it.",
+                    file=sys.stderr,
+                )
+        return 1
+
+    deck = args.deck
+    file_path = Path(args.file)
+    prefix = deck[:2].lower()
+
+    existing = _load_existing_cards(file_path)
+    existing_ids = {c.get("id") for c in existing}
+    card_id = _next_card_id(prefix, existing)
+    if card_id in existing_ids:
+        print(f"error: id {card_id!r} already exists in {file_path}", file=sys.stderr)
+        return 1
+
+    if any(c.get("prompt_en") == prompt_en for c in existing):
+        print(
+            f"warning: a card with prompt_en {prompt_en!r} already exists in "
+            f"{file_path} -- adding anyway",
+            file=sys.stderr,
+        )
+
+    card_obj = {
+        "id": card_id,
+        "deck": deck,
+        "kind": "production",
+        "prompt_en": prompt_en,
+        "accept": accept,
+        "reject": reject,
+        "note": note,
+        "tags": tags,
+    }
+
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    with file_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(card_obj, ensure_ascii=False) + "\n")
+
+    conn = store.connect(args.db)
+    result = store.import_jsonl(conn, file_path)
+    conn.close()
+
+    print(f"{BOLD}{card_id}{RESET} added to {DIM}{deck}{RESET} ({file_path})")
+    print(f"  {prompt_en}")
+    print(f"  {DIM}accept:{RESET} {', '.join(accept)}")
+    if reject:
+        print(f"  {DIM}reject:{RESET} {', '.join(reject)}")
+    if note:
+        print(f"  {DIM}note:{RESET} {note}")
+    if tags:
+        print(f"  {DIM}tags:{RESET} {', '.join(tags)}")
+    print(f"  imported: +{result.added} new, {result.updated} updated, {result.unchanged} unchanged")
+    return 0
+
+
 def cmd_stats(args: argparse.Namespace) -> int:
     conn = store.connect(args.db)
     s = store.deck_stats(conn, args.deck)
@@ -352,6 +510,16 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--limit", type=int, default=20)
     pr.add_argument("--no-color", action="store_true")
     pr.set_defaults(func=cmd_review)
+
+    pa = sub.add_parser("add", help="capture a new card (interactive, or via flags)")
+    pa.add_argument("--prompt", default=None, help="English prompt (omit for interactive mode)")
+    pa.add_argument("--accept", action="append", default=None, help="an accepted Spanish form; repeatable")
+    pa.add_argument("--reject", action="append", default=None, help="a form to reject; repeatable")
+    pa.add_argument("--note", default=None)
+    pa.add_argument("--tags", default=None, help="comma-separated tags")
+    pa.add_argument("--deck", default="mine")
+    pa.add_argument("--file", type=Path, default=Path("data/mine.jsonl"))
+    pa.set_defaults(func=cmd_add)
 
     ps = sub.add_parser("stats", help="show deck counts")
     ps.add_argument("--deck", default=None)
