@@ -88,6 +88,7 @@ Feedback is colour-coded: green exact, amber accepted-with-a-wobble (accent slip
 | `data/peninsular_contrast.jsonl` | 120 | LatAm↔Spain lexicon, vosotros, false friends, colloquial |
 | `data/travel_production.jsonl` | 100 | Full utterances by scenario: hotel, airport, restaurant, bar, pharmacy, tickets, directions, shopping, problems, emergency |
 | `data/grammar_repair.jsonl` | 80 | ser/estar, preterite vs imperfect, subjunctive, por/para, clitics, gustar-type, common learner errors |
+| `data/numbers_listening.jsonl` | 85 | Cardinals, prices, time, dates, platform/floor numbers, quantities |
 
 ```bash
 python3 -m drill import data/*.jsonl
@@ -101,3 +102,14 @@ python3 -m drill weak --days 7     # just this week
 ```
 
 Run it before each tutor session and bring the two tags it names — that's what `docs/TUTOR.md` means by the Sep 24 checkpoint. It refuses to rank until it has ≥3 attempts per tag, so early output saying "not enough history" is correct, not broken.
+
+### Listening
+
+```bash
+python3 -m drill listen              # hear the Spanish, type what you heard
+python3 -m drill listen --rate 150   # slower
+```
+
+Uses the macOS `Mónica` voice (Peninsular). The English prompt appears only *after* you answer — seeing it first turns dictation back into translation. Type `r` alone to replay, up to three times, without it counting as an attempt. In the desktop app, `Ctrl-r` or the speaker button replays the current card.
+
+Pair this with `data/numbers_listening.jsonl`. Understanding *"cuarenta y siete con cincuenta"* at a till is harder than any grammar in the program, and it's the thing you'll face on day one.

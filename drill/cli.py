@@ -649,7 +649,7 @@ def build_parser() -> argparse.ArgumentParser:
     pg = sub.add_parser("gui", help="open the desktop app")
     pg.add_argument("--deck", default=None)
     pg.add_argument("--limit", type=int, default=40)
-    pg.add_argument("--new", type=int, default=20, help="new cards to introduce per day")
+    pg.add_argument("--new", type=int, default=25, help="new cards to introduce per day")
     pg.set_defaults(func=cmd_gui)
 
     pw = sub.add_parser("weak", help="weak-area analytics: what to drill, what to tell your tutor")
@@ -660,7 +660,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     pd = sub.add_parser("daily", help="daily-paced review: caps new cards/day, reviews always first")
     pd.add_argument("--deck", default=None)
-    pd.add_argument("--new", type=int, default=20, help="new cards to introduce per day")
+    pd.add_argument("--new", type=int, default=25, help="new cards to introduce per day")
     pd.add_argument("--max", type=int, default=40, help="max cards in a single session")
     pd.add_argument("--no-color", action="store_true")
     pd.set_defaults(func=cmd_daily)

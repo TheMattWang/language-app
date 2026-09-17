@@ -54,7 +54,7 @@ _LAYER_GRADE = {"L2_exact": Grade.GOOD, "L3_accent": Grade.HARD, "L4_close": Gra
 class DrillApp:
     def __init__(
         self, root: tk.Tk, db_path: Path, deck: str | None, limit: int,
-        new_per_day: int = 20,
+        new_per_day: int = 25,
     ) -> None:
         self.root = root
         self.conn = store.connect(db_path)
@@ -529,7 +529,7 @@ class DrillApp:
 
 def run(
     db_path: Path | None = None, deck: str | None = None, limit: int = 40,
-    new_per_day: int = 20,
+    new_per_day: int = 25,
 ) -> int:
     root = tk.Tk()
     app = DrillApp(root, db_path or store.DEFAULT_DB, deck, limit, new_per_day)
