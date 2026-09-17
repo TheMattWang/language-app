@@ -26,7 +26,7 @@ from pathlib import Path
 from tkinter import font as tkfont
 from tkinter import ttk
 
-from drill import store
+from drill import speech, store
 from drill.grader import grade as grade_attempt
 from drill.scheduler import Grade, SchedState, review as reschedule
 
@@ -160,6 +160,18 @@ class DrillApp:
             b.pack(side="left", padx=2)
             self.root.bind(f"<Control-Key-{i+1}>", lambda _e, c=ch: self._insert(c))
 
+        # On-demand audio hint -- never autoplays, this stays a typing drill.
+        self.btn_speak = None
+        if speech.is_available():
+            self.btn_speak = tk.Button(
+                acc, text="🔊", font=self.f_body, fg=FG, bg="#3a3a3c",
+                activebackground=ACCENT, activeforeground=FG, relief="flat",
+                width=3, highlightthickness=0, bd=0,
+                command=self._speak_current,
+            )
+            self.btn_speak.pack(side="left", padx=(10, 2))
+            self.root.bind("<Control-r>", lambda _e: self._speak_current())
+
         self.lbl_verdict = tk.Label(
             body, text="", font=self.f_body, fg=FG, bg=CARD,
             wraplength=600, justify="left",
@@ -193,6 +205,13 @@ class DrillApp:
         self.entry.insert(tk.INSERT, ch)
         self.entry.focus_set()
         return "break"
+
+    def _speak_current(self) -> None:
+        if not self.queue or self.index >= len(self.queue):
+            return
+        card, _row = self.queue[self.index]
+        if card.accept:
+            speech.speak(card.accept[0])
 
     # --- queue ------------------------------------------------------------
 

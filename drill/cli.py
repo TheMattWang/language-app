@@ -29,7 +29,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Sequence
 
-from drill import store
+from drill import speech, store
 from drill.grader import Verdict, grade as grade_attempt
 from drill.scheduler import Grade, SchedState, review as reschedule
 
@@ -137,6 +137,43 @@ def cmd_import(args: argparse.Namespace) -> int:
     return 0
 
 
+def _grade_and_reschedule(
+    conn: sqlite3.Connection,
+    card: store.Card,
+    row: store.SchedRow,
+    attempt: str,
+    now: datetime,
+    latency_ms: int | None,
+) -> tuple[Verdict, SchedState]:
+    """Grade `attempt` against `card`, persist the schedule update and the
+    review log, and return the verdict plus the new schedule state.
+
+    Shared by `_run_review_loop` and `cmd_listen` so grading + persistence
+    -- the part that must never drift between the typing and listening
+    drills -- lives in exactly one place.
+    """
+    verdict = grade_attempt(attempt, accept=card.accept, reject=card.reject)
+    sched_grade = _verdict_to_grade(verdict)
+
+    before = row.interval_days
+    next_state = reschedule(_to_sched_state(row), sched_grade, now)
+    store.save_sched(conn, _to_sched_row(card.card_id, next_state))
+    store.record_review(
+        conn,
+        card_id=card.card_id,
+        reviewed_at=now,
+        grade=int(sched_grade),
+        latency_ms=latency_ms,
+        raw_text=attempt,
+        accepted=verdict.accepted,
+        layer=verdict.layer,
+        interval_before=before,
+        interval_after=next_state.interval_days,
+    )
+    conn.commit()
+    return verdict, next_state
+
+
 def _run_review_loop(
     conn: sqlite3.Connection,
     queue: Sequence[tuple[store.Card, store.SchedRow]],
@@ -162,8 +199,7 @@ def _run_review_loop(
                 break
             latency_ms = int((time.monotonic() - started) * 1000)
 
-            verdict = grade_attempt(attempt, accept=card.accept, reject=card.reject)
-            sched_grade = _verdict_to_grade(verdict)
+            verdict, next_state = _grade_and_reschedule(conn, card, row, attempt, now, latency_ms)
 
             if verdict.accepted:
                 correct += 1
@@ -178,22 +214,6 @@ def _run_review_loop(
             if card.note:
                 print(f"    {DIM}{card.note}{RESET}")
 
-            before = row.interval_days
-            next_state = reschedule(_to_sched_state(row), sched_grade, now)
-            store.save_sched(conn, _to_sched_row(card.card_id, next_state))
-            store.record_review(
-                conn,
-                card_id=card.card_id,
-                reviewed_at=now,
-                grade=int(sched_grade),
-                latency_ms=latency_ms,
-                raw_text=attempt,
-                accepted=verdict.accepted,
-                layer=verdict.layer,
-                interval_before=before,
-                interval_after=next_state.interval_days,
-            )
-            conn.commit()
             print(f"    {DIM}next in {_fmt_interval(next_state.interval_days)}{RESET}\n")
     except KeyboardInterrupt:
         print("\n\nstopped.")
@@ -261,6 +281,107 @@ def cmd_daily(args: argparse.Namespace) -> int:
         print(f"{correct}/{seen} correct ({pct:.0f}%)")
     if queue.backlog > 0:
         print(f"{DIM}{queue.backlog} review(s) left in backlog -- run `drill daily` again to clear it.{RESET}")
+    conn.close()
+    return 0
+
+
+def cmd_listen(args: argparse.Namespace) -> int:
+    """Listening/dictation drill: the card's first accept form is spoken,
+    the learner types what they heard, and the same `grade()` used by
+    `review`/`daily` scores it -- so every existing deck is drillable for
+    listening with no new content. See docs/SURVIVAL.md §8: parsing
+    Spanish fired at you is the harder half of the real failure mode.
+    """
+    if not speech.is_available():
+        print(
+            "No Peninsular Spanish voice found for `say`. Listening mode needs "
+            f"one of: {', '.join(speech.PENINSULAR_VOICES)} (es_ES). Install one "
+            "under System Settings > Accessibility > Spoken Content, or use "
+            "`drill review` / `drill daily` instead.",
+            file=sys.stderr,
+        )
+        return 1
+
+    c = _color(sys.stdout.isatty() and not args.no_color)
+    conn = store.connect(args.db)
+    now = _now()
+    queue = store.daily_queue(
+        conn, now, deck=args.deck, new_per_day=args.limit, max_cards=args.limit
+    )
+    items = list(queue.items)
+
+    if not items:
+        stats = store.deck_stats(conn, args.deck)
+        if stats.get("total", 0) == 0:
+            print("No cards yet. Import a deck first:")
+            print("  python -m drill import data/<deck>.jsonl")
+        else:
+            print(c("Nothing due. ¡Vale!", GREEN))
+        conn.close()
+        return 0
+
+    print(
+        f"{len(items)} card(s) due. {DIM}'r' to replay (up to {args.replays}x); "
+        f"Ctrl-C to stop, progress is saved.{RESET}\n"
+    )
+
+    correct = 0
+    seen = 0
+    try:
+        for card, row in items:
+            seen += 1
+            target = card.accept[0]
+            replays_left = args.replays
+            print(f"{DIM}[{seen}/{len(items)}]{RESET} {c('🔊 escucha...', BOLD)}")
+            speech.speak(target, rate=args.rate)
+
+            started = time.monotonic()
+            attempt: str | None = None
+            while True:
+                try:
+                    raw = input("  > ").strip()
+                except EOFError:
+                    print("\nstopping.")
+                    raw = None
+                if raw is None:
+                    break
+                if raw.lower() == "r":
+                    if replays_left > 0:
+                        replays_left -= 1
+                        speech.speak(target, rate=args.rate)
+                    else:
+                        print(f"    {DIM}no replays left.{RESET}")
+                    continue
+                attempt = raw
+                break
+            if attempt is None:
+                break
+            latency_ms = int((time.monotonic() - started) * 1000)
+
+            verdict, next_state = _grade_and_reschedule(conn, card, row, attempt, now, latency_ms)
+
+            if verdict.accepted:
+                correct += 1
+                mark = c("✓", GREEN)
+            else:
+                mark = c("✗", RED)
+            print(f"  {mark} {verdict.reason}")
+            if verdict.detail:
+                print(f"    {c(verdict.detail, YELLOW)}")
+            if not verdict.accepted:
+                print(f"    {c(target, CYAN)}")
+            # Revealed only now -- showing it before grading turns dictation
+            # back into translation.
+            print(f"    {DIM}{card.prompt_en}{RESET}")
+            if card.note:
+                print(f"    {DIM}{card.note}{RESET}")
+            print(f"    {DIM}next in {_fmt_interval(next_state.interval_days)}{RESET}\n")
+    except KeyboardInterrupt:
+        print("\n\nstopped.")
+
+    if seen:
+        pct = 100.0 * correct / seen
+        print(f"{correct}/{seen} correct ({pct:.0f}%)")
     conn.close()
     return 0
 
@@ -543,6 +664,14 @@ def build_parser() -> argparse.ArgumentParser:
     pd.add_argument("--max", type=int, default=40, help="max cards in a single session")
     pd.add_argument("--no-color", action="store_true")
     pd.set_defaults(func=cmd_daily)
+
+    pl = sub.add_parser("listen", help="listening/dictation drill: hear it, type it")
+    pl.add_argument("--deck", default=None)
+    pl.add_argument("--limit", type=int, default=20)
+    pl.add_argument("--rate", type=int, default=180, help="words per minute")
+    pl.add_argument("--replays", type=int, default=3, help="replays allowed per card")
+    pl.add_argument("--no-color", action="store_true")
+    pl.set_defaults(func=cmd_listen)
     return p
 
 
