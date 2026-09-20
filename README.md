@@ -33,7 +33,7 @@ wrong answer is worse than no answer.
 
 | Command | What |
 |---|---|
-| `drill daily` | Paced session: all due reviews + up to 15 new cards |
+| `drill daily` | Paced session: all due reviews + new cards, rate derived from days left |
 | `drill review` | Everything currently due, uncapped |
 | `drill gui` | Native desktop window (tkinter) |
 | `drill weak` | Weakest tags and most-missed cards |
