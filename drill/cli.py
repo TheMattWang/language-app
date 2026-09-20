@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Sequence
 
-from drill import cloze, speech, store
+from drill import cloze, export, speech, store
 from drill.grader import Verdict, grade as grade_attempt
 from drill.scheduler import Grade, SchedState, review as reschedule
 
@@ -753,6 +753,38 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_export(args: argparse.Namespace) -> int:
+    """Write a personalised offline markdown sheet: weak tags, hardest
+    cards, and register traps, built from the learner's own review
+    history -- for the plane, with no laptop. See `drill.export`."""
+    conn = store.connect(args.db)
+    now = _now()
+
+    doc = export.build_markdown(
+        conn,
+        deck=args.deck,
+        limit=args.limit,
+        min_attempts=args.min_attempts,
+        now=now,
+    )
+
+    weak = export._weak_tags(conn, args.deck)
+    failing = export._failing_cards(conn, args.deck, args.limit, args.min_attempts)
+    trampas = export._trampas_cards(conn, args.deck)
+    conn.close()
+
+    out_path: Path = args.out
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(doc, encoding="utf-8")
+
+    print(f"{BOLD}{out_path}{RESET}")
+    print(
+        f"  {len(weak)} weak tag(s), {len(failing)} missed card(s), "
+        f"{len(trampas)} trampa(s)"
+    )
+    return 0
+
+
 def cmd_weak(args: argparse.Namespace) -> int:
     conn = store.connect(args.db)
     since = _now() - timedelta(days=args.days) if args.days else None
@@ -852,6 +884,13 @@ def build_parser() -> argparse.ArgumentParser:
     pg.add_argument("--new", type=int, default=None,
                     help="new cards per day (default: derived from days left)")
     pg.set_defaults(func=cmd_gui)
+
+    pe = sub.add_parser("export", help="write a personalised offline markdown sheet of weak material")
+    pe.add_argument("--deck", default=None)
+    pe.add_argument("--out", type=Path, default=Path("docs/MIS_FALLOS.md"))
+    pe.add_argument("--limit", type=int, default=60, help="max missed cards to include")
+    pe.add_argument("--min-attempts", type=int, default=2, help="min attempts for a card to be included")
+    pe.set_defaults(func=cmd_export)
 
     pw = sub.add_parser("weak", help="weak-area analytics: what to drill, what to tell your tutor")
     pw.add_argument("--deck", default=None)
