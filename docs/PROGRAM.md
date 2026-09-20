@@ -127,4 +127,6 @@ It picks your slowest, least accurate seen cards, and **writes nothing**: no rev
 
 ### A note on the daily load
 
-460 cards over the days remaining works out near 30 new per day, which is closer to **20 minutes than 15**. If that's too much, lower it — `python3 -m drill daily --new 20` — and accept that the last cards won't be introduced before the flight. The cards are ordered so the most useful decks go first, which is exactly what makes that an acceptable trade.
+The new-card rate is **derived, not fixed**: `drill daily` divides the cards you haven't seen by the days left before Oct 3. Add a deck and the plan re-paces itself; skip a few days and it catches up. It is clamped to 40/day, because there is a limit to one sitting.
+
+That clamp is the honest part. If the rate is pinned at 40 it means the collection no longer fits before the flight, and something will go unseen. The decks are introduced in usefulness order — travel and numbers first, grammar last — so what goes unseen is what matters least. Override any time with `--new 20`.

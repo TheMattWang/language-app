@@ -54,7 +54,7 @@ _LAYER_GRADE = {"L2_exact": Grade.GOOD, "L3_accent": Grade.HARD, "L4_close": Gra
 class DrillApp:
     def __init__(
         self, root: tk.Tk, db_path: Path, deck: str | None, limit: int,
-        new_per_day: int = 30,
+        new_per_day: int | None = None,
     ) -> None:
         self.root = root
         self.conn = store.connect(db_path)
@@ -229,8 +229,12 @@ class DrillApp:
         # Same pacing as `drill daily`. Using due_cards here would re-introduce
         # a fresh batch of new cards every time the window is opened, with no
         # per-day cap -- which is the wall this pacing exists to prevent.
+        now = _now()
+        per_day = self.new_per_day
+        if per_day is None:
+            per_day = store.suggested_new_per_day(self.conn, now, deck=self.deck)
         q = store.daily_queue(
-            self.conn, _now(), deck=self.deck, new_per_day=self.new_per_day,
+            self.conn, now, deck=self.deck, new_per_day=per_day,
             max_cards=self.limit,
         )
         self.queue = list(q.items)
@@ -557,7 +561,7 @@ class DrillApp:
 
 def run(
     db_path: Path | None = None, deck: str | None = None, limit: int = 40,
-    new_per_day: int = 30,
+    new_per_day: int | None = None,
 ) -> int:
     root = tk.Tk()
     app = DrillApp(root, db_path or store.DEFAULT_DB, deck, limit, new_per_day)

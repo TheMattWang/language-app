@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import sqlite3
 import statistics
 from dataclasses import dataclass
@@ -337,6 +338,49 @@ def _interleave_decks(
             if by_deck[d]:
                 picked.append(by_deck[d].pop(0))
     return picked
+
+
+def suggested_new_per_day(
+    conn: sqlite3.Connection,
+    now: datetime,
+    *,
+    horizon: datetime | None = None,
+    deck: str | None = None,
+    floor: int = 5,
+    ceiling: int = 40,
+) -> int:
+    """How many new cards a day it takes to finish the collection in time.
+
+    Hard-coding this number went wrong three times: every deck added makes
+    the arithmetic tighter, and the failure is silent -- the last cards are
+    simply never introduced before the flight. Deriving it from the
+    remaining cards and the remaining days means adding a deck re-paces the
+    plan automatically.
+
+    Clamped to [floor, ceiling]: a ceiling because there is a limit to what
+    fits in one sitting, a floor so the tool never stops introducing
+    material. Past the horizon there is no deadline left to pace against, so
+    it settles at a sustainable default.
+    """
+    from drill.scheduler import DEFAULT_HORIZON
+
+    horizon = horizon or DEFAULT_HORIZON
+
+    q = "SELECT COUNT(*) AS n FROM sched JOIN card USING (card_id) WHERE sched.state = 'new'"
+    params: list = []
+    if deck is not None:
+        q += " AND card.deck = ?"
+        params.append(deck)
+    remaining = conn.execute(q, params).fetchone()["n"]
+    if remaining <= 0:
+        return floor
+
+    days_left = (horizon - now).total_seconds() / 86400.0
+    if days_left <= 0:
+        return min(ceiling, max(floor, 15))
+
+    needed = math.ceil(remaining / max(1.0, days_left))
+    return min(ceiling, max(floor, needed))
 
 
 def new_cards_introduced_today(

@@ -114,6 +114,11 @@ def test_import_review_reschedule_round_trip(tmp_path):
     conn = store.connect(tmp_path / "e.db")
     store.import_jsonl(conn, _write(tmp_path, [_card()]))
     now = datetime(2026, 9, 20, 9, 0, tzinfo=UTC)
+    # Pin due_at rather than inheriting import_jsonl's wall-clock stamp: with a
+    # fixed `now`, a real clock later than it makes the card not-yet-due and
+    # this test fails for reasons that have nothing to do with what it checks.
+    conn.execute("UPDATE sched SET due_at = ?", (store._iso(now - timedelta(hours=1)),))
+    conn.commit()
 
     queue = store.due_cards(conn, now)
     assert len(queue) == 1
