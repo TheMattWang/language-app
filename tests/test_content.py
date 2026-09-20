@@ -16,7 +16,9 @@ import pytest
 from drill.grader import grade
 
 DATA = Path(__file__).resolve().parent.parent / "data"
-DECKS = sorted(DATA.glob("*.jsonl"))
+# scenarios.jsonl is a different schema (multi-turn conversations, not
+# single cards) -- it's validated separately in tests/test_scenario.py.
+DECKS = sorted(p for p in DATA.glob("*.jsonl") if p.name != "scenarios.jsonl")
 VALID_KINDS = {"production", "cloze", "contrast"}
 
 

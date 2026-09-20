@@ -115,6 +115,17 @@ Uses the macOS `Mónica` voice (Peninsular). The English prompt appears only *af
 
 Pair this with `data/numbers_listening.jsonl`. Understanding *"cuarenta y siete con cincuenta"* at a till is harder than any grammar in the program, and it's the thing you'll face on day one.
 
+### Conversation scenarios
+
+```bash
+python3 -m drill scene --list
+python3 -m drill scene --id sc-001 --speak
+```
+
+Eight multi-turn exchanges — bar, restaurant booking gone wrong, hotel problem, pharmacy, train connection, directions, a return, meeting someone. A wrong answer re-prompts the same turn: first miss shows the goal, second shows a hint, then it reveals the answer and moves on. At the end it prints the dialogue as it should have gone.
+
+This is the closest surviving piece of the original forcing-function idea — you cannot advance until you produce the Spanish. Like `sprint`, it writes nothing to your review history.
+
 ### Sprint — building speed, not knowledge
 
 ```bash

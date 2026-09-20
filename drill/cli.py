@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Sequence
 
-from drill import cloze, export, speech, store
+from drill import cloze, export, scenario, speech, store
 from drill.grader import Verdict, grade as grade_attempt
 from drill.scheduler import Grade, SchedState, review as reschedule
 
@@ -400,6 +400,106 @@ def cmd_listen(args: argparse.Namespace) -> int:
         pct = 100.0 * correct / seen
         print(f"{correct}/{seen} correct ({pct:.0f}%)")
     conn.close()
+    return 0
+
+
+def cmd_scene(args: argparse.Namespace) -> int:
+    """Multi-turn conversation drill: the NPC speaks a line, you answer,
+    the NPC speaks the next line -- a sequence rather than an isolated
+    card. This is the closest surviving thing to the forcing-function
+    idea: you don't leave the scenario until you produce the Spanish.
+
+    Writes nothing to the database -- no review rows, no schedule
+    changes. Scenarios are not cards and must not corrupt SRS state.
+    """
+    c = _color(sys.stdout.isatty() and not args.no_color)
+    scenarios, errors = scenario.load(args.file)
+    for e in errors[:20]:
+        print(f"warning: {e}", file=sys.stderr)
+
+    if args.list:
+        if not scenarios:
+            print(f"No scenarios found in {args.file}.", file=sys.stderr)
+            return 1
+        for s in scenarios:
+            print(f"{c(s.scenario_id, BOLD):<18}{s.title:<32}{len(s.turns)} turn(s)")
+        return 0
+
+    if not scenarios:
+        print(f"No scenarios found in {args.file}.", file=sys.stderr)
+        return 1
+
+    if args.id is not None:
+        chosen = next((s for s in scenarios if s.scenario_id == args.id), None)
+        if chosen is None:
+            print(f"error: no scenario with id {args.id!r}", file=sys.stderr)
+            return 1
+    else:
+        chosen = random.choice(scenarios)
+
+    speak_lines = args.speak and speech.is_available()
+
+    print(f"{DIM}Practice only -- nothing here is scheduled or logged to your review history.{RESET}\n")
+    print(f"{c(chosen.title, BOLD)} {DIM}({chosen.scenario_id}){RESET}")
+    print(f"{chosen.situation_en}\n")
+
+    dialogue: list[tuple[str, str]] = []
+    passed = 0
+    first_attempt_hits = 0
+    seen = 0
+
+    try:
+        for i, t in enumerate(chosen.turns, 1):
+            print(f"{DIM}[{i}/{len(chosen.turns)}]{RESET} {c(t.npc_es, CYAN)}")
+            if speak_lines:
+                speech.speak(t.npc_es)
+
+            turn_passed = False
+            stopped = False
+            for attempt_num in range(1, args.max_attempts + 1):
+                try:
+                    attempt = input("  > ").strip()
+                except EOFError:
+                    print("\nstopping.")
+                    stopped = True
+                    break
+
+                verdict = grade_attempt(attempt, accept=t.accept, reject=t.reject)
+                if verdict.accepted:
+                    print(f"  {c('✓', GREEN)} {verdict.reason}")
+                    if attempt_num == 1:
+                        first_attempt_hits += 1
+                    turn_passed = True
+                    break
+
+                print(f"  {c('✗', RED)} {verdict.reason}")
+                if attempt_num == 1:
+                    print(f"    {c(t.goal_en, YELLOW)}")
+                elif attempt_num == 2 and t.hint:
+                    print(f"    {c(t.hint, YELLOW)}")
+
+            if stopped:
+                break
+
+            seen = i
+            if turn_passed:
+                passed += 1
+            else:
+                print(f"    {c('answer:', DIM)} {c(t.accept[0], CYAN)}")
+            dialogue.append((t.npc_es, t.accept[0]))
+            print()
+    except KeyboardInterrupt:
+        print("\n\nstopped.")
+
+    if seen:
+        pct = 100.0 * first_attempt_hits / seen
+        print(f"{passed}/{seen} turn(s) passed, {pct:.0f}% first-attempt")
+    if dialogue:
+        print(f"\n{BOLD}How it should have gone{RESET}")
+        for npc_es, correct_es in dialogue:
+            print(f"  {DIM}NPC:{RESET} {npc_es}")
+            print(f"  {DIM}Tú: {RESET}{correct_es}")
+
     return 0
 
 
@@ -926,6 +1026,18 @@ def build_parser() -> argparse.ArgumentParser:
     psp.add_argument("--seed", type=int, default=None, help="shuffle seed (default: system entropy)")
     psp.add_argument("--no-color", action="store_true")
     psp.set_defaults(func=cmd_sprint)
+
+    psc = sub.add_parser(
+        "scene",
+        help="multi-turn conversation drill: NPC speaks, you answer, in sequence",
+    )
+    psc.add_argument("--id", default=None, help="scenario id, e.g. sc-001 (random if omitted)")
+    psc.add_argument("--list", action="store_true", help="list available scenarios and exit")
+    psc.add_argument("--speak", action="store_true", help="speak NPC lines aloud")
+    psc.add_argument("--max-attempts", type=int, default=3, dest="max_attempts")
+    psc.add_argument("--file", type=Path, default=Path("data/scenarios.jsonl"))
+    psc.add_argument("--no-color", action="store_true")
+    psc.set_defaults(func=cmd_scene)
     return p
 
 

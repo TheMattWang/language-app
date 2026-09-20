@@ -38,6 +38,11 @@ wrong answer is worse than no answer.
 | `drill gui` | Native desktop window (tkinter) |
 | `drill weak` | Weakest tags and most-missed cards |
 | `drill stats` | Card counts by state |
+| `drill listen` | Dictation — hear the Spanish, type it |
+| `drill scene` | Multi-turn conversation scenarios |
+| `drill sprint` | Timed rounds, 8s → 6s → 4s |
+| `drill add` | Capture a tutor correction |
+| `drill export` | Offline markdown of what you keep missing |
 | `drill import <files>` | Load or update decks; safe to re-run |
 
 ## Decks
@@ -47,6 +52,9 @@ wrong answer is worse than no answer.
 | `data/peninsular_contrast.jsonl` | 120 | LatAm↔Spain lexicon, vosotros, false friends, colloquial |
 | `data/travel_production.jsonl` | 100 | Full utterances: hotel, airport, restaurant, pharmacy, tickets, complaints |
 | `data/grammar_repair.jsonl` | 80 | ser/estar, preterite vs imperfect, subjunctive, por/para, clitics, gustar |
+| `data/numbers_listening.jsonl` | 85 | Cardinals, prices, time, dates, platforms, quantities |
+| `data/cloze_grammar.jsonl` | 75 | Gap-fill: subjunctive triggers, irregulars, collocations |
+| `data/scenarios.jsonl` | 8 | Multi-turn conversations (different schema) |
 
 Cards are JSONL. Add your own — especially corrections from a tutor, which are the
 highest-value cards you will ever write:
