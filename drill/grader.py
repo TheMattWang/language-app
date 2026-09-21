@@ -141,6 +141,30 @@ _SUB_MAX_CHAR_DIST = 2
 _SUB_MIN_LEN = 4
 
 
+
+# Spanish pairs distinguished ONLY by the accent (tilde diacrítica). Folding
+# accents is normally a kindness -- typing "donde esta" for "dónde está"
+# should never be marked wrong -- but for these the accent IS the word, and
+# folding conflates two different ones. The guard applies only when the whole
+# expected answer is a single token, which is exactly the cloze-gap case where
+# the distinction is what the card teaches; inside a full sentence the
+# surrounding words carry the meaning and tolerance stays.
+_DIACRITIC_HOMOGRAPHS: frozenset[frozenset[str]] = frozenset(
+    frozenset(pair)
+    for pair in (
+        ("el", "él"), ("tu", "tú"), ("mi", "mí"), ("si", "sí"), ("se", "sé"),
+        ("de", "dé"), ("te", "té"), ("mas", "más"), ("aun", "aún"),
+        ("solo", "sólo"), ("que", "qué"), ("como", "cómo"), ("cual", "cuál"),
+        ("quien", "quién"), ("donde", "dónde"), ("cuando", "cuándo"),
+        ("cuanto", "cuánto"), ("esta", "está"), ("este", "éste"),
+    )
+)
+
+
+def _is_diacritic_homograph(a: str, b: str) -> bool:
+    """True when a and b are a real pair that differs only by the accent."""
+    return a != b and frozenset((a, b)) in _DIACRITIC_HOMOGRAPHS
+
 def _close_enough(att: list[str], acc: list[str]) -> bool:
     """True when `att` differs from `acc` by one *forgivable* token.
 
@@ -231,6 +255,12 @@ def grade(attempt: str, *, accept: Sequence[str], reject: Sequence[str] = ()) ->
     # L3: matches once accents are folded — an accent slip, never a block.
     folded_attempt = fold_accents(canon_attempt)
     for original, _canon_tokens_a, canon_str_a in canon_accepts:
+        # When the whole expected answer is one token and the pair differs
+        # only by the accent that distinguishes two real words (se/sé,
+        # el/él), folding would accept the wrong word outright. That is
+        # precisely the distinction such a card exists to teach.
+        if _is_diacritic_homograph(canon_attempt, canon_str_a):
+            continue
         if folded_attempt == fold_accents(canon_str_a):
             return Verdict(
                 accepted=True,
@@ -259,6 +289,10 @@ def grade(attempt: str, *, accept: Sequence[str], reject: Sequence[str] = ()) ->
     for original, canon_tokens_a, canon_str_a in canon_accepts:
         if _blocked_by_ene_tilde_confusion(canon_attempt, canon_str_a):
             continue
+        # Same reason as at L3: edit distance would otherwise re-admit
+        # the homograph the accent guard just excluded.
+        if _is_diacritic_homograph(canon_attempt, canon_str_a):
+            continue
         if len(canon_tokens_a) > 1 and _close_enough(canon_attempt_tokens, canon_tokens_a):
             return Verdict(
                 accepted=True,
@@ -267,7 +301,11 @@ def grade(attempt: str, *, accept: Sequence[str], reject: Sequence[str] = ()) ->
                 matched=original,
                 detail=None,
             )
-        if len(canon_tokens_a) == 1 and edit_distance(canon_attempt, canon_str_a) <= 2:
+        if (
+            len(canon_tokens_a) == 1
+            and min(len(canon_attempt), len(canon_str_a)) >= _SUB_MIN_LEN
+            and edit_distance(canon_attempt, canon_str_a) <= 2
+        ):
             return Verdict(
                 accepted=True,
                 layer="L4_close",
@@ -280,6 +318,15 @@ def grade(attempt: str, *, accept: Sequence[str], reject: Sequence[str] = ()) ->
     # say so: ñ is the one character that is never folded (ano/año), and a
     # learner typing on a US keyboard will hit this constantly.
     for original, _canon_tokens_a, canon_str_a in canon_accepts:
+        if _is_diacritic_homograph(canon_attempt, canon_str_a):
+            return Verdict(
+                accepted=False,
+                layer="L5_reject",
+                reason=f"La tilde cambia la palabra: «{original}»",
+                matched=None,
+                detail=f"«{canon_attempt}» y «{canon_str_a}» son palabras distintas, "
+                "no la misma con o sin tilde.",
+            )
         # Fold the *other* accents first, so an otherwise-accentless attempt
         # ("donde esta el bano") still reveals ñ as the sole real difference.
         if _blocked_by_ene_tilde_confusion(

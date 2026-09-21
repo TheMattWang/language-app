@@ -88,9 +88,20 @@ def test_l3_accent_slip_accepted() -> None:
 
 
 def test_l3_accent_slip_accepted_single_word() -> None:
-    v = grade("esta", accept=["está"])
+    # NOT "esta"/"está": those are different words (this / is), a tilde
+    # diacrítica pair the grader must keep apart. A real accent slip is a
+    # word that does not change identity when the accent is dropped.
+    v = grade("cafe", accept=["café"])
     assert v.accepted is True
     assert v.layer == "L3_accent"
+
+
+def test_diacritic_homograph_is_not_an_accent_slip() -> None:
+    """esta/está, se/sé, el/él are different words, not typos of each other."""
+    for attempt, target in (("esta", "está"), ("se", "sé"), ("el", "él"),
+                            ("como", "cómo"), ("mi", "mí")):
+        v = grade(attempt, accept=[target])
+        assert not v.accepted, f"{attempt!r} wrongly accepted for {target!r} ({v.layer})"
 
 
 # --- pro-drop: leading subject pronoun is optional --------------------------

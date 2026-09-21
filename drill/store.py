@@ -107,6 +107,11 @@ def connect(db_path: Path = DEFAULT_DB) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
+    # WAL allows one writer; without a timeout the loser of a race fails
+    # instantly and its whole import is dropped. Concurrent imports are
+    # reachable in practice -- the desktop app holds a connection open while
+    # the user runs a command in a terminal.
+    conn.execute("PRAGMA busy_timeout = 5000")
 
     schema_sql = _SCHEMA_PATH.read_text(encoding="utf-8")
     conn.executescript(schema_sql)

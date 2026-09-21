@@ -272,6 +272,11 @@ class DrillApp:
     def _show_card(self) -> None:
         card, _row = self.queue[self.index]
         self.awaiting_next = False
+        # _finish() and _show_empty() hide the entry; without re-packing it
+        # here, switching the deck picker to a deck that still has cards
+        # showed a prompt with nowhere to type until the app was restarted.
+        if not self.entry.winfo_manager():
+            self.entry.pack(fill="x", padx=24, ipady=10, before=self.lbl_verdict)
         plan = ""
         if self.plan is not None and self.plan.new_introduced:
             reviews = len(self.queue) - self.plan.new_introduced

@@ -171,7 +171,12 @@ def _due_with_horizon(
         # overshoot the horizon. Fall back to landing just before it.
         due = horizon - timedelta(minutes=1)
         if due <= now:
-            due = now + timedelta(minutes=1)
+            # Inside the final minute there is no slot left before the
+            # horizon at all, and manufacturing one would push due_at PAST
+            # it -- breaking this module's own invariant to satisfy a clamp
+            # that has no runway left to protect. Disengage instead and let
+            # normal SM-2 apply, exactly as it does after departure.
+            return raw_due, interval_days
         clamped_days = (due - now).total_seconds() / 86400.0
 
     return due, clamped_days

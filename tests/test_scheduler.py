@@ -302,3 +302,29 @@ def test_horizon_clamp_floor_does_not_overshoot_when_close_to_departure() -> Non
     )
     result = review(s, Grade.GOOD, now)
     assert now < result.due_at < DEFAULT_HORIZON
+
+
+def test_horizon_clamp_never_schedules_past_the_horizon(tmp_path=None) -> None:
+    """Inside the final minute the clamp must disengage, not overshoot.
+
+    QA found that with `now` within ~60s of the horizon the last-resort
+    fallback produced `now + 1 minute`, landing up to 59s AFTER the horizon
+    -- breaking the invariant the clamp exists to enforce.
+    """
+    from datetime import timedelta as _td
+
+    horizon = DEFAULT_HORIZON
+    for seconds_before in (3600, 600, 90, 59, 30, 1):
+        now = horizon - _td(seconds=seconds_before)
+        s = SchedState(
+            due_at=now, interval_days=30.0, ease=2.5, reps=5, lapses=0,
+            state="review", last_reviewed_at=None,
+        )
+        nxt = review(s, Grade.GOOD, now)
+        if seconds_before > 60:
+            assert nxt.due_at < horizon, (
+                f"{seconds_before}s before horizon -> due {nxt.due_at} is past it"
+            )
+        else:
+            # No runway left to protect; normal SM-2 applies, as after departure.
+            assert nxt.due_at > now
