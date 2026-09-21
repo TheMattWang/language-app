@@ -20,6 +20,7 @@ correct Spanish is wrong is what makes people stop using the tool.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import random
 import re
@@ -103,6 +104,108 @@ def _fmt_interval(days: float) -> str:
     if days < 1:
         return f"{days * 24:.0f} h"
     return f"{days:.0f} d"
+
+
+# --- numeric flag validation -------------------------------------------------
+#
+# Single shared helper for every `--limit`/`--count`/`--rounds`/`--max`/
+# `--days`/`--min-attempts` style flag across `review`, `daily`, `listen`,
+# `sprint`, `weak`, `export`. QA found these accepting nonsense (negative
+# SQLite `LIMIT`s becoming "unlimited", negative Python slices silently
+# dropping trailing items, `0` read as "nothing requested" when it should
+# mean "nothing due"/"no seen cards", etc). Wired in two places for the
+# same reason: as an argparse `type=` (so the CLI's own repro path fails
+# fast at parse time with a usable message) and as `_validate` inside the
+# command functions themselves (so a hand-built `argparse.Namespace` that
+# skips argparse's own parsing -- exactly how this test suite, and
+# presumably any future caller, exercises these functions -- can't still
+# reach the old `IndexError`/bad-`LIMIT` path).
+
+
+def _positive(name: str, value, *, minimum: int = 1) -> int:
+    """Parse `value` as an int and enforce `value >= minimum`.
+
+    `name` is the argparse dest (underscores), converted to the flag's
+    dashed spelling for the message, e.g. "min_attempts" -> "--min-attempts".
+    Raises `argparse.ArgumentTypeError` -- valid both as an argparse `type=`
+    (argparse turns it into a parse-time error naming the flag) and as a
+    plain exception `_validate` below catches and reports the same way.
+    """
+    flag = f"--{name.replace('_', '-')}"
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        raise argparse.ArgumentTypeError(f"{flag} must be an integer (got {value!r})")
+    if n < minimum:
+        raise argparse.ArgumentTypeError(f"{flag} must be >= {minimum} (got {n})")
+    return n
+
+
+def _validate(args: argparse.Namespace, name: str, *, minimum: int = 1, optional: bool = False) -> bool:
+    """Validate `args.<name>` in place via `_positive`, printing one line
+    to stderr and returning False on bad input instead of raising deep
+    inside a query or a slice. `optional=True` skips validation when the
+    flag is `None` (not supplied) -- `daily --new` and `weak --days` derive
+    a default rather than requiring a number.
+    """
+    value = getattr(args, name)
+    if optional and value is None:
+        return True
+    try:
+        setattr(args, name, _positive(name, value, minimum=minimum))
+        return True
+    except argparse.ArgumentTypeError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return False
+
+
+# --- first-run bootstrap -----------------------------------------------------
+
+
+def _bootstrap_if_empty(conn: sqlite3.Connection) -> None:
+    """First-run convenience: if the database has zero cards at all (not
+    just none due), auto-import the bundled decks from the repo's `data/`
+    directory so `daily`/`review`/`listen`/`sprint` are usable immediately
+    with no manual `drill import` step first.
+
+    Resolved relative to this package's own location (`drill/cli.py`'s
+    parent's parent), not the working directory, so it works no matter
+    where the CLI is invoked from. `data/scenarios.jsonl` is explicitly
+    skipped -- it's turn-based NPC dialogue, not cards -- and
+    `store.import_jsonl` itself already no-ops (no rows written) on any
+    other file whose objects lack the `deck`/`kind`/`accept` shape, so a
+    stray non-card file in `data/` is silently skipped rather than
+    imported or crashing.
+    """
+    total = conn.execute("SELECT COUNT(*) FROM card").fetchone()[0]
+    if total > 0:
+        return
+
+    data_dir = Path(__file__).resolve().parent.parent / "data"
+    if not data_dir.is_dir():
+        print(
+            "No cards yet, and no bundled data/ directory found. Import a deck first:\n"
+            "  python -m drill import data/<deck>.jsonl"
+        )
+        return
+
+    imported: list[str] = []
+    for path in sorted(data_dir.glob("*.jsonl")):
+        if path.name == "scenarios.jsonl":
+            continue
+        result = store.import_jsonl(conn, path)
+        if result.errors:
+            continue  # not a card deck (wrong schema) -- skip silently
+        if result.added or result.updated:
+            imported.append(path.stem)
+
+    if imported:
+        print(f"First run: auto-imported bundled deck(s): {', '.join(imported)}\n")
+    else:
+        print(
+            "No cards yet, and no bundled decks found in data/. Import one first:\n"
+            "  python -m drill import data/<deck>.jsonl"
+        )
 
 
 # --- commands ---------------------------------------------------------------
@@ -235,8 +338,11 @@ def _run_review_loop(
 
 
 def cmd_review(args: argparse.Namespace) -> int:
+    if not _validate(args, "limit"):
+        return 2
     c = _color(sys.stdout.isatty() and not args.no_color)
     conn = store.connect(args.db)
+    _bootstrap_if_empty(conn)
     now = _now()
     queue = store.due_cards(conn, now, deck=args.deck, limit=args.limit)
 
@@ -263,8 +369,11 @@ def cmd_review(args: argparse.Namespace) -> int:
 
 
 def cmd_daily(args: argparse.Namespace) -> int:
+    if not _validate(args, "max") or not _validate(args, "new", minimum=0, optional=True):
+        return 2
     c = _color(sys.stdout.isatty() and not args.no_color)
     conn = store.connect(args.db)
+    _bootstrap_if_empty(conn)
     now = _now()
     new_per_day = args.new
     derived = new_per_day is None
@@ -319,8 +428,11 @@ def cmd_listen(args: argparse.Namespace) -> int:
         )
         return 1
 
+    if not _validate(args, "limit"):
+        return 2
     c = _color(sys.stdout.isatty() and not args.no_color)
     conn = store.connect(args.db)
+    _bootstrap_if_empty(conn)
     now = _now()
     queue = store.daily_queue(
         conn, now, deck=args.deck, new_per_day=args.limit, max_cards=args.limit
@@ -608,8 +720,11 @@ def cmd_sprint(args: argparse.Namespace) -> int:
     than knowledge. Deliberately does not touch scheduling -- see the note
     printed below -- so it is safe to run as often as wanted.
     """
+    if not _validate(args, "count") or not _validate(args, "rounds"):
+        return 2
     c = _color(sys.stdout.isatty() and not args.no_color)
     conn = store.connect(args.db)
+    _bootstrap_if_empty(conn)
 
     cards = _sprint_candidates(conn, args.deck, args.count)
     if not cards:
@@ -767,7 +882,11 @@ def cmd_add(args: argparse.Namespace) -> int:
         note = args.note.strip() if args.note else None
         tags = [t.strip() for t in args.tags.split(",") if t.strip()] if args.tags else []
     else:
-        prompt_en, accept, reject, note, tags = _prompt_add_interactive()
+        try:
+            prompt_en, accept, reject, note, tags = _prompt_add_interactive()
+        except EOFError:
+            print("\nstopping.")
+            return 1
 
     if not prompt_en:
         print("error: prompt cannot be empty", file=sys.stderr)
@@ -842,6 +961,30 @@ def cmd_add(args: argparse.Namespace) -> int:
     return 0
 
 
+def _deck_accuracy(conn: sqlite3.Connection, deck: str | None) -> float | None:
+    """accepted/total over the `review` table, scoped to `deck` if given.
+
+    `docs/PROGRAM.md` names ">=85% accuracy" as a checkpoint, but `stats`
+    never showed it. Returns None when there have been zero reviews, so
+    the caller can print `--` rather than `0%` -- `0%` reads as "you are
+    failing," while `--` correctly reads as "no data yet."
+    """
+    query = "SELECT COUNT(*) AS total, SUM(CASE WHEN accepted THEN 1 ELSE 0 END) AS accepted FROM review"
+    params: list = []
+    if deck is not None:
+        query = (
+            "SELECT COUNT(*) AS total, SUM(CASE WHEN review.accepted THEN 1 ELSE 0 END) AS accepted "
+            "FROM review JOIN card ON review.card_id = card.card_id WHERE card.deck = ?"
+        )
+        params.append(deck)
+    row = conn.execute(query, params).fetchone()
+    total = row["total"] or 0
+    if total == 0:
+        return None
+    accepted = row["accepted"] or 0
+    return 100.0 * accepted / total
+
+
 def cmd_stats(args: argparse.Namespace) -> int:
     conn = store.connect(args.db)
     s = store.deck_stats(conn, args.deck)
@@ -849,6 +992,9 @@ def cmd_stats(args: argparse.Namespace) -> int:
     print(f"{BOLD}{label}{RESET}")
     for key in ("total", "new", "learning", "review", "lapsed", "due_now"):
         print(f"  {key:>9}: {s.get(key, 0)}")
+    accuracy = _deck_accuracy(conn, args.deck)
+    acc_str = "--" if accuracy is None else f"{accuracy:.0f}%"
+    print(f"  {'accuracy':>9}: {acc_str}")
     conn.close()
     return 0
 
@@ -857,6 +1003,8 @@ def cmd_export(args: argparse.Namespace) -> int:
     """Write a personalised offline markdown sheet: weak tags, hardest
     cards, and register traps, built from the learner's own review
     history -- for the plane, with no laptop. See `drill.export`."""
+    if not _validate(args, "limit") or not _validate(args, "min_attempts", minimum=0):
+        return 2
     conn = store.connect(args.db)
     now = _now()
 
@@ -886,6 +1034,8 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 
 def cmd_weak(args: argparse.Namespace) -> int:
+    if not _validate(args, "limit") or not _validate(args, "days", optional=True):
+        return 2
     conn = store.connect(args.db)
     since = _now() - timedelta(days=args.days) if args.days else None
     tag_stats = store.tag_performance(conn, deck=args.deck, since=since)
@@ -960,7 +1110,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     pr = sub.add_parser("review", help="review due cards")
     pr.add_argument("--deck", default=None)
-    pr.add_argument("--limit", type=int, default=20)
+    pr.add_argument("--limit", type=functools.partial(_positive, "limit"), default=20)
     pr.add_argument("--no-color", action="store_true")
     pr.set_defaults(func=cmd_review)
 
@@ -988,27 +1138,33 @@ def build_parser() -> argparse.ArgumentParser:
     pe = sub.add_parser("export", help="write a personalised offline markdown sheet of weak material")
     pe.add_argument("--deck", default=None)
     pe.add_argument("--out", type=Path, default=Path("docs/MIS_FALLOS.md"))
-    pe.add_argument("--limit", type=int, default=60, help="max missed cards to include")
-    pe.add_argument("--min-attempts", type=int, default=2, help="min attempts for a card to be included")
+    pe.add_argument("--limit", type=functools.partial(_positive, "limit"), default=60,
+                    help="max missed cards to include")
+    # min_attempts legitimately allows 0: "no attempts floor," still only
+    # ever includes cards missed >=1 time (see export._failing_cards).
+    pe.add_argument("--min-attempts", type=functools.partial(_positive, "min_attempts", minimum=0),
+                    default=2, help="min attempts for a card to be included")
     pe.set_defaults(func=cmd_export)
 
     pw = sub.add_parser("weak", help="weak-area analytics: what to drill, what to tell your tutor")
     pw.add_argument("--deck", default=None)
-    pw.add_argument("--days", type=int, default=None)
-    pw.add_argument("--limit", type=int, default=10)
+    pw.add_argument("--days", type=functools.partial(_positive, "days"), default=None)
+    pw.add_argument("--limit", type=functools.partial(_positive, "limit"), default=10)
     pw.set_defaults(func=cmd_weak)
 
     pd = sub.add_parser("daily", help="daily-paced review: caps new cards/day, reviews always first")
     pd.add_argument("--deck", default=None)
-    pd.add_argument("--new", type=int, default=None,
+    # new legitimately allows 0: "introduce no new cards today," reviews only.
+    pd.add_argument("--new", type=functools.partial(_positive, "new", minimum=0), default=None,
                     help="new cards per day (default: derived from days left)")
-    pd.add_argument("--max", type=int, default=40, help="max cards in a single session")
+    pd.add_argument("--max", type=functools.partial(_positive, "max"), default=40,
+                    help="max cards in a single session")
     pd.add_argument("--no-color", action="store_true")
     pd.set_defaults(func=cmd_daily)
 
     pl = sub.add_parser("listen", help="listening/dictation drill: hear it, type it")
     pl.add_argument("--deck", default=None)
-    pl.add_argument("--limit", type=int, default=20)
+    pl.add_argument("--limit", type=functools.partial(_positive, "limit"), default=20)
     pl.add_argument("--rate", type=int, default=180, help="words per minute")
     pl.add_argument("--replays", type=int, default=3, help="replays allowed per card")
     pl.add_argument("--no-color", action="store_true")
@@ -1019,8 +1175,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="timed 4/3/2 fluency drill: same cards, shrinking time limit; never reschedules",
     )
     psp.add_argument("--deck", default=None)
-    psp.add_argument("--count", type=int, default=10, help="number of already-seen cards to sprint on")
-    psp.add_argument("--rounds", type=int, default=3)
+    psp.add_argument("--count", type=functools.partial(_positive, "count"), default=10,
+                     help="number of already-seen cards to sprint on")
+    psp.add_argument("--rounds", type=functools.partial(_positive, "rounds"), default=3)
     psp.add_argument("--start", type=float, default=8.0, help="seconds per card in round 1")
     psp.add_argument("--step", type=float, default=2.0, help="seconds shaved off each round, floored at 2s")
     psp.add_argument("--seed", type=int, default=None, help="shuffle seed (default: system entropy)")

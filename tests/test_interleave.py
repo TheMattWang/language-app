@@ -50,7 +50,9 @@ def test_every_deck_starts_on_day_one(tmp_path: Path) -> None:
     q = store.daily_queue(conn, NOW, new_per_day=20)
     by_deck = Counter(card.deck for card, _ in q.items)
     assert len(by_deck) == 3, f"a deck was left out of day one: {by_deck}"
-    assert min(by_deck.values()) >= 5, f"a deck barely appeared: {by_deck}"
+    # Shares are weighted by priority, so they are deliberately unequal -- but
+    # no deck may be starved to nothing, which is what interleaving is for.
+    assert min(by_deck.values()) >= 2, f"a deck barely appeared: {by_deck}"
     conn.close()
 
 
@@ -65,7 +67,9 @@ def test_travel_outranks_grammar_despite_alphabetical_id(tmp_path: Path) -> None
 
 def test_unknown_deck_sorts_between_known_ones(tmp_path: Path) -> None:
     conn = _seed(tmp_path, {"travel_production": 5, "zzz_custom": 5, "grammar_repair": 5})
-    q = store.daily_queue(conn, NOW, new_per_day=3)
+    # Budget large enough for every deck to appear: with weighted slots a tiny
+    # budget is legitimately consumed by the highest-priority deck alone.
+    q = store.daily_queue(conn, NOW, new_per_day=12)
     decks = [card.deck for card, _ in q.items]
     assert decks.index("travel_production") < decks.index("zzz_custom")
     assert decks.index("zzz_custom") < decks.index("grammar_repair")
@@ -146,4 +150,26 @@ def test_daily_budget_is_global_not_per_deck(tmp_path: Path) -> None:
         assert scoped.new_introduced == 0, (
             f"filtering to {deck} handed out {scoped.new_introduced} extra new cards"
         )
+    conn.close()
+
+
+def test_reduced_rate_degrades_in_priority_order(tmp_path: Path) -> None:
+    """Lowering the daily rate must cost the optional decks, not the vital ones.
+
+    A flat round-robin thins every deck equally, so cutting to a smaller
+    budget lost as much travel vocabulary as grammar -- and docs claiming
+    "what goes unseen is what matters least" were simply false. Slots are
+    now weighted by DECK_PRIORITY, so travel keeps its share and grammar is
+    the tail that goes unseen.
+    """
+    conn = _seed(tmp_path, {"travel_production": 60, "peninsular_contrast": 60,
+                            "grammar_repair": 60})
+    q = store.daily_queue(conn, NOW, new_per_day=18)
+    got = Counter(card.deck for card, _ in q.items)
+
+    assert got["travel_production"] > got["peninsular_contrast"] > got["grammar_repair"], (
+        f"decks not introduced in priority order: {got}"
+    )
+    # Every deck still starts on day one -- weighting must not become blocking.
+    assert got["grammar_repair"] > 0, "lowest-priority deck was starved entirely"
     conn.close()

@@ -18,6 +18,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Sequence
 
+_CARD_KEYS = ("deck", "kind", "accept")
+
 DEFAULT_DB = Path.home() / ".langapp" / "drill.db"
 
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
@@ -37,6 +39,10 @@ DECK_PRIORITY: dict[str, int] = {
     "grammar_repair": 3,
 }
 _DEFAULT_DECK_RANK = 2
+
+# Slots per rotation by priority rank. Higher-priority decks appear more often,
+# so a reduced daily rate degrades in usefulness order instead of uniformly.
+_DECK_WEIGHTS: dict[int, int] = {0: 3, 1: 2, 2: 1, 3: 1}
 
 
 
@@ -179,10 +185,79 @@ def _row_to_sched(row: sqlite3.Row, *, prefix: str = "") -> SchedRow:
     )
 
 
+def backup_db(db_path: Path, *, keep: int = 5) -> Path | None:
+    """Snapshot `db_path` to a timestamped `.bak.<UTC timestamp>` sibling.
+
+    Uses sqlite3's online backup API so a snapshot taken while a connection
+    is open (WAL mode included) is still consistent, rather than a raw file
+    copy that could grab a torn write. Prunes older backups, keeping only
+    the newest `keep`. Never raises -- a failed backup must not block the
+    write it's protecting -- so any error (missing source, unwritable
+    directory, etc.) results in `None` instead of a traceback.
+    """
+    try:
+        db_path = Path(db_path)
+        if not db_path.exists():
+            return None
+
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        dest_path = db_path.parent / f"{db_path.name}.bak.{timestamp}"
+
+        source = sqlite3.connect(str(db_path))
+        try:
+            dest = sqlite3.connect(str(dest_path))
+            try:
+                source.backup(dest)
+            finally:
+                dest.close()
+        finally:
+            source.close()
+
+        if keep >= 0:
+            pattern = f"{db_path.name}.bak.*"
+            backups = sorted(
+                db_path.parent.glob(pattern), key=lambda p: p.name, reverse=True
+            )
+            for stale in backups[keep:]:
+                stale.unlink(missing_ok=True)
+
+        return dest_path
+    except Exception:
+        return None
+
+
 def import_jsonl(conn: sqlite3.Connection, path: Path) -> ImportResult:
     """Upsert cards from a JSONL file. Safely re-runnable. One transaction."""
     path = Path(path)
     lines = path.read_text(encoding="utf-8").splitlines()
+
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+        try:
+            first_obj = json.loads(line)
+        except json.JSONDecodeError:
+            first_obj = None
+        if isinstance(first_obj, dict) and not all(k in first_obj for k in _CARD_KEYS):
+            return ImportResult(
+                added=0,
+                updated=0,
+                unchanged=0,
+                errors=("not a card deck (looks like a different schema); skipped",),
+            )
+        break
+
+    has_reviews = conn.execute("SELECT 1 FROM review LIMIT 1").fetchone() is not None
+    if has_reviews:
+        for row in conn.execute("PRAGMA database_list").fetchall():
+            # seq, name, file -- positional, since callers may not set
+            # row_factory = sqlite3.Row on the connection they pass in.
+            if row[1] == "main":
+                db_file = row[2]
+                if db_file:
+                    backup_db(Path(db_file))
+                break
 
     added = 0
     updated = 0
@@ -330,9 +405,20 @@ def _interleave_decks(
         by_deck.setdefault(item[0].deck, []).append(item)
 
     decks = sorted(by_deck, key=lambda d: (DECK_PRIORITY.get(d, _DEFAULT_DECK_RANK), d))
+
+    # Weighted round-robin, not flat. A flat rotation interleaves nicely but
+    # degrades wrongly: lowering the daily rate thins every deck equally, so
+    # cutting to 20/day costs as much travel vocabulary as grammar. Weighting
+    # by priority means the decks you need at a counter keep their share and
+    # the optional ones absorb the loss -- while everything still starts on
+    # day one, which is what the interleaving was for.
+    cycle: list[str] = []
+    for d in decks:
+        cycle.extend([d] * _DECK_WEIGHTS.get(DECK_PRIORITY.get(d, _DEFAULT_DECK_RANK), 1))
+
     picked: list[tuple[Card, SchedRow]] = []
     while len(picked) < budget and any(by_deck[d] for d in decks):
-        for d in decks:
+        for d in cycle:
             if len(picked) >= budget:
                 break
             if by_deck[d]:

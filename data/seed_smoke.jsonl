@@ -1,6 +1,0 @@
-{"id":"sm-001","deck":"smoke","kind":"contrast","prompt_en":"the car (Spain)","accept":["el coche"],"reject":["el carro","carro"],"note":"carro is LatAm; coche in Spain","tags":["lexicon"]}
-{"id":"sm-002","deck":"smoke","kind":"contrast","prompt_en":"the mobile phone (Spain)","accept":["el móvil"],"reject":["el celular","celular"],"note":"celular is LatAm","tags":["lexicon"]}
-{"id":"sm-003","deck":"smoke","kind":"production","prompt_en":"A coffee with milk, please.","accept":["un café con leche por favor","un café con leche"],"reject":[],"note":null,"tags":["bar"]}
-{"id":"sm-004","deck":"smoke","kind":"production","prompt_en":"Where is the bathroom?","accept":["dónde está el baño","¿dónde está el baño?"],"reject":[],"note":null,"tags":["survival"]}
-{"id":"sm-005","deck":"smoke","kind":"production","prompt_en":"(to a group, Spain) Do you have a reservation?","accept":["tenéis una reserva","¿tenéis una reserva?"],"reject":["tienen una reserva"],"note":"vosotros, not ustedes","tags":["vosotros"]}
-{"id":"sm-006","deck":"smoke","kind":"production","prompt_en":"The bill, please.","accept":["la cuenta por favor","la cuenta"],"reject":[],"note":null,"tags":["bar"]}

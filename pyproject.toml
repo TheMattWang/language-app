@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drill"
+version = "0.1.0"
+description = "A local spaced-repetition tool for Peninsular Spanish production practice"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+drill = "drill.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["drill*"]
+
+[tool.setuptools.package-data]
+drill = ["schema.sql"]
