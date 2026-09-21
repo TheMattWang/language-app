@@ -46,6 +46,12 @@ _DECK_WEIGHTS: dict[int, int] = {0: 3, 1: 2, 2: 1, 3: 1}
 
 
 
+# Cards carry why a rejected form is wrong as a reserved tag rather than a
+# column: the DB has no migration runner, so adding a column to `card`
+# breaks every existing install (docs/qa/store_durability.md, P1-4).
+WHY_TAG_PREFIX = "why:"
+
+
 @dataclass(frozen=True)
 class Card:
     card_id: str
@@ -56,6 +62,27 @@ class Card:
     reject: tuple[str, ...]
     note: str | None
     tags: tuple[str, ...]
+
+    @property
+    def reject_reason(self) -> str | None:
+        """The card's `why:` category, or None when it carries no tag.
+
+        None lets the grader apply its own default rather than having one
+        guessed here -- a card with no stated reason must not be assumed to
+        be a regionalism, which is the bug this whole mechanism exists to
+        fix.
+        """
+        for tag in self.tags:
+            if tag.startswith(WHY_TAG_PREFIX):
+                return tag[len(WHY_TAG_PREFIX):] or None
+        return None
+
+    @property
+    def display_tags(self) -> tuple[str, ...]:
+        """Tags fit to show the learner: `why:` entries are grading
+        metadata, and on the GUI card face they would sit under the prompt
+        as a hint before the answer is typed."""
+        return tuple(t for t in self.tags if not t.startswith(WHY_TAG_PREFIX))
 
 
 @dataclass(frozen=True)
@@ -733,7 +760,9 @@ def tag_performance(
     tag_lapses: dict[str, int] = {}
     for row in conn.execute(card_query, card_params).fetchall():
         card_id = row["card_id"]
-        tags = json.loads(row["tags_json"])
+        # `why:` entries say why a rejected form is wrong; they are not
+        # topics, and "weakest tags" listing `why:meaning` would be noise.
+        tags = [t for t in json.loads(row["tags_json"]) if not t.startswith(WHY_TAG_PREFIX)]
         card_tags[card_id] = tags
         for tag in tags:
             tag_cards.setdefault(tag, set()).add(card_id)

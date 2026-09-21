@@ -2,8 +2,10 @@
 
 Design stance (see repo docs): a deterministic grader that is too strict
 teaches the user the tool is broken. Every ambiguous case is resolved
-toward ACCEPT. The only hard rejection this grader cares about is
-LatAm vocabulary where Peninsular Spanish is required.
+toward ACCEPT. A rejected form always names the alternative; WHY it is
+rejected (a LatAm regionalism, a vosotros/ustedes register mismatch, a
+false friend, a malformed construction, or an unspecified reason) is
+carried per-card as `reject_reason` — see docs/DESIGN-reject-reasons.md.
 """
 
 from __future__ import annotations
@@ -13,7 +15,67 @@ from typing import Sequence
 
 from drill.normalize import edit_distance, fold_accents, token_edit_distance, tokens
 
-__all__ = ["Verdict", "grade"]
+__all__ = [
+    "Verdict",
+    "grade",
+    "REJECT_TAG_PREFIX",
+    "REJECT_REASONS",
+    "DEFAULT_REJECT_REASON",
+    "reject_reason_from_tags",
+    "is_reason_tag",
+]
+
+
+REJECT_TAG_PREFIX = "why:"
+REJECT_REASONS: tuple[str, ...] = ("region", "register", "meaning", "form")
+DEFAULT_REJECT_REASON = "unspecified"
+
+# Per-category L1 templates. `X` is the matched reject form, `Y` is the
+# first accepted alternative. `region` is byte-identical to the single
+# message this module used to emit unconditionally.
+_REJECT_REASON_TEMPLATES: dict[str, tuple[str, str]] = {
+    "region": (
+        "En España no se dice «{x}» — prueba con «{y}».",
+        "«{x}» es de Latinoamérica; en España: «{y}»",
+    ),
+    "register": (
+        "«{x}» es correcto, pero aquí toca vosotros — prueba con «{y}».",
+        "«{x}» es la forma de ustedes; en España, con amigos, se usa vosotros: «{y}»",
+    ),
+    "meaning": (
+        "«{x}» es español correcto, pero significa otra cosa — aquí: «{y}».",
+        "«{x}» existe, pero no dice lo que pide esta tarjeta; la respuesta es «{y}»",
+    ),
+    "form": (
+        "«{x}» no es correcto en español — la forma es «{y}».",
+        "«{x}» no es una forma válida aquí; lo correcto es «{y}»",
+    ),
+    "unspecified": (
+        "Aquí no vale «{x}» — la respuesta es «{y}».",
+        "«{x}» no es la forma que pide esta tarjeta; la correcta es «{y}»",
+    ),
+}
+
+
+def reject_reason_from_tags(tags: Sequence[str]) -> str:
+    """The card's `why:` tag, or DEFAULT_REJECT_REASON.
+
+    Unknown or malformed values degrade to the default rather than raising:
+    a typo in a deck must never abort a review mid-session. `tests/
+    test_content.py` is where a bad value is caught, not here.
+    """
+    for tag in tags:
+        if tag.startswith(REJECT_TAG_PREFIX):
+            value = tag[len(REJECT_TAG_PREFIX) :]
+            if value in REJECT_REASONS:
+                return value
+            return DEFAULT_REJECT_REASON
+    return DEFAULT_REJECT_REASON
+
+
+def is_reason_tag(tag: str) -> bool:
+    """True for a `why:` tag — display and analytics sites filter on this."""
+    return tag.startswith(REJECT_TAG_PREFIX)
 
 
 @dataclass(frozen=True)
@@ -23,6 +85,7 @@ class Verdict:
     reason: str
     matched: str | None
     detail: str | None
+    reject_reason: str | None = None
 
 
 # --- tolerance vocabularies -------------------------------------------------
@@ -281,7 +344,13 @@ def _close_enough(att: list[str], acc: list[str]) -> bool:
     return False
 
 
-def grade(attempt: str, *, accept: Sequence[str], reject: Sequence[str] = ()) -> Verdict:
+def grade(
+    attempt: str,
+    *,
+    accept: Sequence[str],
+    reject: Sequence[str] = (),
+    reject_reason: str = DEFAULT_REJECT_REASON,
+) -> Verdict:
     norm_attempt = " ".join(tokens(attempt))
 
     # L0: empty or a single character carries no gradeable content.
@@ -305,14 +374,20 @@ def grade(attempt: str, *, accept: Sequence[str], reject: Sequence[str] = ()) ->
         if _is_subsequence(r_tokens_folded, attempt_tokens_folded):
             alt = accept[0] if accept else ""
             reject_word = r.strip()
-            reason = f"En España no se dice «{reject_word}» — prueba con «{alt}»."
-            detail = f"«{reject_word}» es de Latinoamérica; en España: «{alt}»"
+            reason_template, detail_template = _REJECT_REASON_TEMPLATES.get(
+                reject_reason, _REJECT_REASON_TEMPLATES[DEFAULT_REJECT_REASON]
+            )
+            reason = reason_template.format(x=reject_word, y=alt)
+            detail = detail_template.format(x=reject_word, y=alt)
             return Verdict(
                 accepted=False,
                 layer="L1_banned",
                 reason=reason,
                 matched=None,
                 detail=detail,
+                reject_reason=reject_reason
+                if reject_reason in REJECT_REASONS
+                else DEFAULT_REJECT_REASON,
             )
 
     canon_attempt_tokens = _canonicalize(attempt_tokens)

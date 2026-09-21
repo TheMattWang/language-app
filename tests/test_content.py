@@ -13,7 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from drill.grader import grade
+from drill.grader import DEFAULT_REJECT_REASON, REJECT_REASONS, grade, is_reason_tag
+from drill.normalize import fold_accents, normalize
 
 DATA = Path(__file__).resolve().parent.parent / "data"
 # scenarios.jsonl is a different schema (multi-turn conversations, not
@@ -111,3 +112,83 @@ def test_no_card_shows_its_own_answer(deck_path: Path) -> None:
             if re.search(pattern, spanish):
                 leaks.append(f"  {c['id']}: prompt already contains {form!r}")
     assert not leaks, "cards revealing their own answer:\n" + "\n".join(leaks)
+
+
+def _why_tags(card: dict) -> list[str]:
+    return [t for t in card.get("tags", []) if is_reason_tag(t)]
+
+
+@pytest.mark.parametrize("deck_path", DECKS, ids=lambda p: p.name)
+def test_reason_tag_iff_reject_list(deck_path: Path) -> None:
+    """A card has exactly one `why:` tag iff it has a non-empty `reject`.
+
+    Catches drift in both directions: a reject-bearing card left on the
+    bland default (missing tag) and a stray `why:` tag on a card that can
+    never reach L1_banned (empty reject, so the tag is inert noise).
+    """
+    bad = []
+    for c in _load(deck_path):
+        whys = _why_tags(c)
+        if c.get("reject"):
+            if len(whys) != 1:
+                bad.append(f"  {c['id']}: has reject but {len(whys)} why: tags {whys}")
+        else:
+            if whys:
+                bad.append(f"  {c['id']}: no reject but has why: tag(s) {whys}")
+    assert not bad, "\n".join(bad)
+
+
+@pytest.mark.parametrize("deck_path", DECKS, ids=lambda p: p.name)
+def test_reason_tag_is_valid(deck_path: Path) -> None:
+    """Every `why:` tag value is one of the five valid reasons.
+
+    Catches typos (`why:meaing`) that would otherwise silently degrade to
+    the unspecified default at grade time instead of failing loudly here.
+    """
+    valid = set(REJECT_REASONS) | {DEFAULT_REJECT_REASON}
+    bad = []
+    for c in _load(deck_path):
+        for tag in _why_tags(c):
+            value = tag.split(":", 1)[1]
+            if value not in valid:
+                bad.append(f"  {c['id']}: invalid why: tag {tag!r}")
+    assert not bad, "\n".join(bad)
+
+
+def test_mirror_pairs_are_not_region_or_form() -> None:
+    """The test that would have caught the original gr-001/gr-002 bug.
+
+    Build an index of every `accept` form across all decks, folded and
+    normalized. Any `reject` form that collides with an answer some other
+    (or the same) card teaches as correct cannot honestly be explained as
+    "not real Spanish" (`form`) or "not said in Spain" (`region`) -- it is
+    demonstrably both real and Peninsular. Such a collision may only be
+    tagged `meaning` (it means something else here) or `register` (it's
+    the wrong person -- ustedes instead of vosotros).
+    """
+
+    def key(s: str) -> str:
+        return fold_accents(normalize(s))
+
+    accept_index: dict[str, list[str]] = {}
+    for deck_path in DECKS:
+        for c in _load(deck_path):
+            for form in c["accept"]:
+                accept_index.setdefault(key(form), []).append(c["id"])
+
+    bad = []
+    for deck_path in DECKS:
+        for c in _load(deck_path):
+            reason = None
+            for tag in _why_tags(c):
+                reason = tag.split(":", 1)[1]
+            for r in c.get("reject", []):
+                hits = accept_index.get(key(r))
+                if not hits:
+                    continue
+                if reason not in ("meaning", "register"):
+                    bad.append(
+                        f"  {c['id']}: rejects {r!r}, which is accepted by "
+                        f"{hits} elsewhere, but is tagged why:{reason}"
+                    )
+    assert not bad, "reject forms that contradict an accepted answer:\n" + "\n".join(bad)

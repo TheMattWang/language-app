@@ -41,6 +41,20 @@ the skill you'll actually use in Spain.
 
 - 10 min free conversation, no scaffolding — establishes the baseline
 - Then: **review `data/peninsular_contrast.jsonl` together**, ~10 min. 115 cards, LLM-authored, never checked by a native. Ask specifically about `pc-084`–`pc-093` (slang), which dates fastest.
+- **Four cards to settle by name.** A QA pass found the deck marking correct
+  Peninsular Spanish as wrong; four were fixed on the evidence, two are
+  genuinely uncertain and need a native. Ask directly — *¿se dice esto en
+  España?*:
+  - `pc-099` — can you ask for **la nota** in a bar, or only **la cuenta**?
+  - `pc-094`/`gr-067` — the deck marks **hoy comí** wrong and wants **hoy he
+    comido**. That is the Madrid norm, but the simple preterite is normal in
+    Galicia, Asturias and the Canaries. Is rejecting it outright too strong?
+    (Kept deliberately — the present perfect is one of the clearest Peninsular
+    markers — but it is a judgement call, not a checked fact.)
+
+  If the answer is "both are fine", drop the rejected form from the card; a
+  card that punishes a correct answer is worse than no card, because the
+  scheduler then treats a right answer as a lapse.
 - Last 10 min: restaurant roleplay, cold
 
 **You want to leave with:** a CEFR-ish level, three named errors, and a corrected card list.

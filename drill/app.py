@@ -27,7 +27,7 @@ from tkinter import font as tkfont
 from tkinter import ttk
 
 from drill import cloze, speech, store
-from drill.grader import grade as grade_attempt
+from drill.grader import DEFAULT_REJECT_REASON, grade as grade_attempt
 from drill.scheduler import Grade, SchedState, review as reschedule
 
 # --- palette ---------------------------------------------------------------
@@ -284,7 +284,7 @@ class DrillApp:
         self.lbl_deck.config(
             text=f"{card.deck}  ·  {self.index + 1}/{len(self.queue)}{plan}"
         )
-        self.lbl_tag.config(text="  ".join(f"#{t}" for t in card.tags))
+        self.lbl_tag.config(text="  ".join(f"#{t}" for t in card.display_tags))
         if cloze.is_cloze(card.kind):
             self._cloze = cloze.parse(card.prompt_en)
             self.lbl_prompt.config(text=cloze.render_question(self._cloze))
@@ -328,7 +328,12 @@ class DrillApp:
             return
 
         latency_ms = int((time.monotonic() - self.started) * 1000)
-        verdict = grade_attempt(attempt, accept=card.accept, reject=card.reject)
+        verdict = grade_attempt(
+            attempt,
+            accept=card.accept,
+            reject=card.reject,
+            reject_reason=card.reject_reason or DEFAULT_REJECT_REASON,
+        )
         sched_grade = (
             Grade.AGAIN if not verdict.accepted else _LAYER_GRADE.get(verdict.layer, Grade.GOOD)
         )

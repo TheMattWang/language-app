@@ -24,11 +24,15 @@ UTC = timezone.utc
 CARDS = [
     {
         "id": "t1", "deck": "t", "kind": "contrast", "prompt_en": "the car (Spain)",
-        "accept": ["el coche"], "reject": ["carro"], "note": "carro is LatAm", "tags": ["lex"],
+        "accept": ["el coche"], "reject": ["carro"], "note": "carro is LatAm",
+        # `why:region` is what makes the regional wording correct here. Without
+        # it the card falls back to the neutral message -- which is the point of
+        # the default: an untagged card must not assert a regionalism.
+        "tags": ["lex", "why:region"],
     },
     {
         "id": "t2", "deck": "t", "kind": "production", "prompt_en": "the juice (Spain)",
-        "accept": ["el zumo"], "reject": ["jugo"], "note": None, "tags": [],
+        "accept": ["el zumo"], "reject": ["jugo"], "note": None, "tags": [],  # untagged on purpose
     },
 ]
 

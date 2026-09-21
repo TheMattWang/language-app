@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Sequence
 
 from drill import cloze, export, scenario, speech, store
-from drill.grader import Verdict, grade as grade_attempt
+from drill.grader import DEFAULT_REJECT_REASON, Verdict, grade as grade_attempt
 from drill.scheduler import Grade, SchedState, review as reschedule
 
 # --- presentation -----------------------------------------------------------
@@ -364,7 +364,12 @@ def _grade_and_reschedule(
     -- the part that must never drift between the typing and listening
     drills -- lives in exactly one place.
     """
-    verdict = grade_attempt(attempt, accept=card.accept, reject=card.reject)
+    verdict = grade_attempt(
+        attempt,
+        accept=card.accept,
+        reject=card.reject,
+        reject_reason=card.reject_reason or DEFAULT_REJECT_REASON,
+    )
     sched_grade = _verdict_to_grade(verdict)
 
     before = row.interval_days
@@ -877,7 +882,12 @@ def cmd_sprint(args: argparse.Namespace) -> int:
             if answer is None:
                 print(f"    {c('timeout', RED)} -- {c(card.accept[0], CYAN)}")
                 continue
-            verdict = grade_attempt(answer, accept=card.accept, reject=card.reject)
+            verdict = grade_attempt(
+                answer,
+                accept=card.accept,
+                reject=card.reject,
+                reject_reason=card.reject_reason or DEFAULT_REJECT_REASON,
+            )
             if verdict.accepted:
                 correct += 1
                 print(f"    {c('correct', GREEN)}")

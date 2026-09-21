@@ -93,8 +93,25 @@ highest-value cards you will ever write:
  "accept":["la cuenta por favor"],"reject":[],"note":null,"tags":["bar"]}
 ```
 
+**If you give a card a `reject` list, say why it is wrong** with one reserved
+`why:` tag. The grader uses it to explain the rejection, and getting it wrong
+means the tool tells you something false about Spanish:
+
+| Tag | Use when the rejected form is | What you are shown |
+|---|---|---|
+| `why:region` | Latin American; Spain says something else | En España no se dice «X» — prueba con «Y». |
+| `why:register` | correct, but the ustedes form where vosotros belongs | «X» es correcto, pero aquí toca vosotros — prueba con «Y». |
+| `why:meaning` | correct Spanish meaning something else (ser/estar, false friends) | «X» es español correcto, pero significa otra cosa — aquí: «Y». |
+| `why:form` | not Spanish at all (bad conjugation, a calque) | «X» no es correcto en español — la forma es «Y». |
+
+Omit it and you get a neutral "Aquí no vale «X»". That is deliberate: an
+untagged card must not assert a regionalism. Claiming one falsely is the bug
+this exists to prevent — the deck once told the learner that `tienen` is not
+said in Spain, on the very cards teaching `tenéis`.
+
 Then `python3 -m drill import data/mine.jsonl` and
-`python3 -m pytest tests/test_content.py -q` to confirm the new cards are answerable.
+`python3 -m pytest tests/test_content.py -q` to confirm the new cards are
+answerable — that suite also enforces the `why:` rules above.
 
 ## Layout
 
