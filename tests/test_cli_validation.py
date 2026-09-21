@@ -296,7 +296,7 @@ def test_bootstrap_missing_data_dir_prints_manual_command_no_crash(tmp_path, mon
     conn.close()
 
     out = capsys.readouterr().out
-    assert "python -m drill import" in out
+    assert "python3 -m drill import" in out
 
 
 def test_bootstrap_skipped_when_db_already_has_cards(tmp_path, monkeypatch, capsys):

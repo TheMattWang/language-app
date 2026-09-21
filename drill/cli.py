@@ -2,9 +2,9 @@
 
 Three commands:
 
-    python -m drill import data/peninsular_contrast.jsonl
-    python -m drill review --deck peninsular_contrast --limit 20
-    python -m drill stats
+    python3 -m drill import data/peninsular_contrast.jsonl
+    python3 -m drill review --deck peninsular_contrast --limit 20
+    python3 -m drill stats
 
 The review loop shows an English prompt, takes typed Spanish, grades it
 deterministically (see `drill.grader`) and reschedules with SM-2 (see
@@ -39,19 +39,56 @@ from drill.scheduler import Grade, SchedState, review as reschedule
 
 # --- presentation -----------------------------------------------------------
 
-BOLD = "\033[1m"
-DIM = "\033[2m"
-GREEN = "\033[32m"
-YELLOW = "\033[33m"
-RED = "\033[31m"
-CYAN = "\033[36m"
-RESET = "\033[0m"
+# Raw escape sequences. These are never referenced directly outside this
+# block -- everything downstream uses the module-level BOLD/DIM/... names
+# below, which `_set_color()` resolves once per command invocation.
+_ESC_BOLD = "\033[1m"
+_ESC_DIM = "\033[2m"
+_ESC_GREEN = "\033[32m"
+_ESC_YELLOW = "\033[33m"
+_ESC_RED = "\033[31m"
+_ESC_CYAN = "\033[36m"
+_ESC_RESET = "\033[0m"
+
+# Resolved per-invocation by `_set_color()`. Start disabled (empty strings)
+# so any output produced before a command calls `_set_color()` -- there
+# shouldn't be any, but this is the safe default -- never leaks ANSI.
+BOLD = DIM = GREEN = YELLOW = RED = CYAN = RESET = ""
 
 
 def _color(enabled: bool):
     if enabled:
         return lambda s, c: f"{c}{s}{RESET}"
     return lambda s, c: s
+
+
+def _set_color(no_color: bool):
+    """Decide whether colour is on for this invocation and resolve the
+    module-level BOLD/DIM/GREEN/YELLOW/RED/CYAN/RESET constants accordingly.
+
+    This is the single choke point every command must call, first thing,
+    before printing anything. QA found that most output interpolated the
+    raw escape constants directly into f-strings, bypassing the `_color()`
+    gate entirely -- so `--no-color` suppressed almost nothing, and piping
+    to a file embedded literal ESC bytes. Rather than patch every one of
+    those call sites individually, the constants themselves now become
+    empty strings when colour is off, so every existing
+    `f"{DIM}...{RESET}"` site is automatically ANSI-free with no changes
+    needed there.
+
+    Colour is on only when stdout is a real TTY *and* `--no-color` wasn't
+    passed -- never on a pipe/redirect/capture, regardless of the flag.
+    Returns the `c(text, code)` gate for call sites that already use it.
+    """
+    global BOLD, DIM, GREEN, YELLOW, RED, CYAN, RESET
+    enabled = sys.stdout.isatty() and not no_color
+    if enabled:
+        BOLD, DIM, GREEN, YELLOW, RED, CYAN, RESET = (
+            _ESC_BOLD, _ESC_DIM, _ESC_GREEN, _ESC_YELLOW, _ESC_RED, _ESC_CYAN, _ESC_RESET,
+        )
+    else:
+        BOLD = DIM = GREEN = YELLOW = RED = CYAN = RESET = ""
+    return _color(enabled)
 
 
 def _now() -> datetime:
@@ -185,7 +222,7 @@ def _bootstrap_if_empty(conn: sqlite3.Connection) -> None:
     if not data_dir.is_dir():
         print(
             "No cards yet, and no bundled data/ directory found. Import a deck first:\n"
-            "  python -m drill import data/<deck>.jsonl"
+            "  python3 -m drill import data/<deck>.jsonl"
         )
         return
 
@@ -204,17 +241,44 @@ def _bootstrap_if_empty(conn: sqlite3.Connection) -> None:
     else:
         print(
             "No cards yet, and no bundled decks found in data/. Import one first:\n"
-            "  python -m drill import data/<deck>.jsonl"
+            "  python3 -m drill import data/<deck>.jsonl"
         )
+
+
+def _deck_names(conn: sqlite3.Connection) -> list[str]:
+    """Distinct deck names actually present in the DB, sorted."""
+    return [r[0] for r in conn.execute("SELECT DISTINCT deck FROM card ORDER BY deck").fetchall()]
+
+
+def _report_no_cards(conn: sqlite3.Connection, deck: str | None) -> None:
+    """Print the right "nothing here" message when a queue came back empty
+    because the requested deck itself has no cards.
+
+    QA found `--deck <nonexistent>` reusing the generic "No cards yet" line
+    even on a 460-card database -- misleading, since the database is not
+    empty, that one deck name just doesn't match anything. When a specific
+    deck was requested and the database as a whole is non-empty, say so and
+    list the real deck names instead.
+    """
+    if deck is not None:
+        overall = store.deck_stats(conn, None)
+        if overall.get("total", 0) > 0:
+            names = _deck_names(conn)
+            print(f"No deck named {deck!r}. Decks in this database: {', '.join(names)}.")
+            return
+    print("No cards yet. Import a deck first:")
+    print("  python3 -m drill import data/<deck>.jsonl")
 
 
 # --- commands ---------------------------------------------------------------
 
 
 def cmd_import(args: argparse.Namespace) -> int:
+    _set_color(getattr(args, "no_color", False))
     conn = store.connect(args.db)
     total_added = total_updated = total_unchanged = 0
     all_errors: list[str] = []
+    had_failure = False
     paths = [Path(p) for p in args.paths]
     if not paths:
         print("nothing to import", file=sys.stderr)
@@ -223,8 +287,15 @@ def cmd_import(args: argparse.Namespace) -> int:
         if not path.exists():
             print(f"missing: {path}", file=sys.stderr)
             all_errors.append(f"{path}: not found")
+            had_failure = True
             continue
-        result = store.import_jsonl(conn, path)
+        try:
+            result = store.import_jsonl(conn, path)
+        except OSError as exc:
+            print(f"unreadable: {path}: {exc}", file=sys.stderr)
+            all_errors.append(f"{path}: {exc}")
+            had_failure = True
+            continue
         total_added += result.added
         total_updated += result.updated
         total_unchanged += result.unchanged
@@ -240,7 +311,12 @@ def cmd_import(args: argparse.Namespace) -> int:
         if len(all_errors) > 20:
             print(f"  ... and {len(all_errors) - 20} more", file=sys.stderr)
     conn.close()
-    return 0
+    # Non-zero exit iff a requested file was missing or unreadable -- so a
+    # script chaining `import` calls can detect that failure -- but not for
+    # in-file schema/content errors (`result.errors`), which are reported
+    # but were already tolerated as non-fatal (e.g. one bad line among many
+    # good ones, or a non-card file skipped with a warning).
+    return 1 if had_failure else 0
 
 
 def _grade_and_reschedule(
@@ -340,7 +416,7 @@ def _run_review_loop(
 def cmd_review(args: argparse.Namespace) -> int:
     if not _validate(args, "limit"):
         return 2
-    c = _color(sys.stdout.isatty() and not args.no_color)
+    c = _set_color(getattr(args, "no_color", False))
     conn = store.connect(args.db)
     _bootstrap_if_empty(conn)
     now = _now()
@@ -349,8 +425,7 @@ def cmd_review(args: argparse.Namespace) -> int:
     if not queue:
         stats = store.deck_stats(conn, args.deck)
         if stats.get("total", 0) == 0:
-            print("No cards yet. Import a deck first:")
-            print("  python -m drill import data/<deck>.jsonl")
+            _report_no_cards(conn, args.deck)
         else:
             print(c("Nothing due. ¡Vale!", GREEN))
             print(f"{DIM}{stats['total']} cards, {stats['new']} still new{RESET}")
@@ -371,7 +446,7 @@ def cmd_review(args: argparse.Namespace) -> int:
 def cmd_daily(args: argparse.Namespace) -> int:
     if not _validate(args, "max") or not _validate(args, "new", minimum=0, optional=True):
         return 2
-    c = _color(sys.stdout.isatty() and not args.no_color)
+    c = _set_color(getattr(args, "no_color", False))
     conn = store.connect(args.db)
     _bootstrap_if_empty(conn)
     now = _now()
@@ -386,8 +461,7 @@ def cmd_daily(args: argparse.Namespace) -> int:
     if not queue.items:
         stats = store.deck_stats(conn, args.deck)
         if stats.get("total", 0) == 0:
-            print("No cards yet. Import a deck first:")
-            print("  python -m drill import data/<deck>.jsonl")
+            _report_no_cards(conn, args.deck)
         else:
             print(c("Nothing to do right now. ¡Vale!", GREEN))
         conn.close()
@@ -430,7 +504,7 @@ def cmd_listen(args: argparse.Namespace) -> int:
 
     if not _validate(args, "limit"):
         return 2
-    c = _color(sys.stdout.isatty() and not args.no_color)
+    c = _set_color(getattr(args, "no_color", False))
     conn = store.connect(args.db)
     _bootstrap_if_empty(conn)
     now = _now()
@@ -442,8 +516,7 @@ def cmd_listen(args: argparse.Namespace) -> int:
     if not items:
         stats = store.deck_stats(conn, args.deck)
         if stats.get("total", 0) == 0:
-            print("No cards yet. Import a deck first:")
-            print("  python -m drill import data/<deck>.jsonl")
+            _report_no_cards(conn, args.deck)
         else:
             print(c("Nothing due. ¡Vale!", GREEN))
         conn.close()
@@ -524,7 +597,7 @@ def cmd_scene(args: argparse.Namespace) -> int:
     Writes nothing to the database -- no review rows, no schedule
     changes. Scenarios are not cards and must not corrupt SRS state.
     """
-    c = _color(sys.stdout.isatty() and not args.no_color)
+    c = _set_color(getattr(args, "no_color", False))
     scenarios, errors = scenario.load(args.file)
     for e in errors[:20]:
         print(f"warning: {e}", file=sys.stderr)
@@ -722,7 +795,7 @@ def cmd_sprint(args: argparse.Namespace) -> int:
     """
     if not _validate(args, "count") or not _validate(args, "rounds"):
         return 2
-    c = _color(sys.stdout.isatty() and not args.no_color)
+    c = _set_color(getattr(args, "no_color", False))
     conn = store.connect(args.db)
     _bootstrap_if_empty(conn)
 
@@ -875,6 +948,7 @@ def cmd_add(args: argparse.Namespace) -> int:
     """Capture a single card from a tutor session and drop it straight into
     the drillable deck -- see docs/TUTOR.md: a correction not turned into a
     card is a correction made again in Spain."""
+    _set_color(getattr(args, "no_color", False))
     if args.prompt is not None:
         prompt_en = args.prompt.strip()
         accept = [a.strip() for a in (args.accept or []) if a.strip()]
@@ -986,6 +1060,7 @@ def _deck_accuracy(conn: sqlite3.Connection, deck: str | None) -> float | None:
 
 
 def cmd_stats(args: argparse.Namespace) -> int:
+    _set_color(getattr(args, "no_color", False))
     conn = store.connect(args.db)
     s = store.deck_stats(conn, args.deck)
     label = args.deck or "all decks"
@@ -1005,6 +1080,7 @@ def cmd_export(args: argparse.Namespace) -> int:
     history -- for the plane, with no laptop. See `drill.export`."""
     if not _validate(args, "limit") or not _validate(args, "min_attempts", minimum=0):
         return 2
+    _set_color(getattr(args, "no_color", False))
     conn = store.connect(args.db)
     now = _now()
 
@@ -1036,6 +1112,7 @@ def cmd_export(args: argparse.Namespace) -> int:
 def cmd_weak(args: argparse.Namespace) -> int:
     if not _validate(args, "limit") or not _validate(args, "days", optional=True):
         return 2
+    _set_color(getattr(args, "no_color", False))
     conn = store.connect(args.db)
     since = _now() - timedelta(days=args.days) if args.days else None
     tag_stats = store.tag_performance(conn, deck=args.deck, since=since)
@@ -1102,16 +1179,24 @@ def cmd_gui(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="drill", description="Spanish production drill")
     p.add_argument("--db", type=Path, default=store.DEFAULT_DB, help="database path")
+    # Global so every subcommand accepts `--no-color` (QA P1: argparse used
+    # to reject it on stats/weak/export/add/import, and it only worked
+    # before the subcommand name via this top-level flag). Also kept on
+    # each subparser below -- both `drill --no-color <cmd>` and
+    # `drill <cmd> --no-color` work; argparse never lets a subparser's own
+    # default clobber a value already set by the top-level parser.
+    p.add_argument("--no-color", action="store_true", help="disable ANSI colour output")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     pi = sub.add_parser("import", help="import card JSONL files")
     pi.add_argument("paths", nargs="+")
+    pi.add_argument("--no-color", action="store_true", default=argparse.SUPPRESS)
     pi.set_defaults(func=cmd_import)
 
     pr = sub.add_parser("review", help="review due cards")
     pr.add_argument("--deck", default=None)
     pr.add_argument("--limit", type=functools.partial(_positive, "limit"), default=20)
-    pr.add_argument("--no-color", action="store_true")
+    pr.add_argument("--no-color", action="store_true", default=argparse.SUPPRESS)
     pr.set_defaults(func=cmd_review)
 
     pa = sub.add_parser("add", help="capture a new card (interactive, or via flags)")
@@ -1122,10 +1207,12 @@ def build_parser() -> argparse.ArgumentParser:
     pa.add_argument("--tags", default=None, help="comma-separated tags")
     pa.add_argument("--deck", default="mine")
     pa.add_argument("--file", type=Path, default=Path("data/mine.jsonl"))
+    pa.add_argument("--no-color", action="store_true", default=argparse.SUPPRESS)
     pa.set_defaults(func=cmd_add)
 
     ps = sub.add_parser("stats", help="show deck counts")
     ps.add_argument("--deck", default=None)
+    ps.add_argument("--no-color", action="store_true", default=argparse.SUPPRESS)
     ps.set_defaults(func=cmd_stats)
 
     pg = sub.add_parser("gui", help="open the desktop app")
@@ -1133,6 +1220,7 @@ def build_parser() -> argparse.ArgumentParser:
     pg.add_argument("--limit", type=int, default=40)
     pg.add_argument("--new", type=int, default=None,
                     help="new cards per day (default: derived from days left)")
+    pg.add_argument("--no-color", action="store_true", default=argparse.SUPPRESS)
     pg.set_defaults(func=cmd_gui)
 
     pe = sub.add_parser("export", help="write a personalised offline markdown sheet of weak material")
@@ -1144,12 +1232,14 @@ def build_parser() -> argparse.ArgumentParser:
     # ever includes cards missed >=1 time (see export._failing_cards).
     pe.add_argument("--min-attempts", type=functools.partial(_positive, "min_attempts", minimum=0),
                     default=2, help="min attempts for a card to be included")
+    pe.add_argument("--no-color", action="store_true", default=argparse.SUPPRESS)
     pe.set_defaults(func=cmd_export)
 
     pw = sub.add_parser("weak", help="weak-area analytics: what to drill, what to tell your tutor")
     pw.add_argument("--deck", default=None)
     pw.add_argument("--days", type=functools.partial(_positive, "days"), default=None)
     pw.add_argument("--limit", type=functools.partial(_positive, "limit"), default=10)
+    pw.add_argument("--no-color", action="store_true", default=argparse.SUPPRESS)
     pw.set_defaults(func=cmd_weak)
 
     pd = sub.add_parser("daily", help="daily-paced review: caps new cards/day, reviews always first")
@@ -1159,7 +1249,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="new cards per day (default: derived from days left)")
     pd.add_argument("--max", type=functools.partial(_positive, "max"), default=40,
                     help="max cards in a single session")
-    pd.add_argument("--no-color", action="store_true")
+    pd.add_argument("--no-color", action="store_true", default=argparse.SUPPRESS)
     pd.set_defaults(func=cmd_daily)
 
     pl = sub.add_parser("listen", help="listening/dictation drill: hear it, type it")
@@ -1167,7 +1257,7 @@ def build_parser() -> argparse.ArgumentParser:
     pl.add_argument("--limit", type=functools.partial(_positive, "limit"), default=20)
     pl.add_argument("--rate", type=int, default=180, help="words per minute")
     pl.add_argument("--replays", type=int, default=3, help="replays allowed per card")
-    pl.add_argument("--no-color", action="store_true")
+    pl.add_argument("--no-color", action="store_true", default=argparse.SUPPRESS)
     pl.set_defaults(func=cmd_listen)
 
     psp = sub.add_parser(
@@ -1181,7 +1271,7 @@ def build_parser() -> argparse.ArgumentParser:
     psp.add_argument("--start", type=float, default=8.0, help="seconds per card in round 1")
     psp.add_argument("--step", type=float, default=2.0, help="seconds shaved off each round, floored at 2s")
     psp.add_argument("--seed", type=int, default=None, help="shuffle seed (default: system entropy)")
-    psp.add_argument("--no-color", action="store_true")
+    psp.add_argument("--no-color", action="store_true", default=argparse.SUPPRESS)
     psp.set_defaults(func=cmd_sprint)
 
     psc = sub.add_parser(
@@ -1193,7 +1283,7 @@ def build_parser() -> argparse.ArgumentParser:
     psc.add_argument("--speak", action="store_true", help="speak NPC lines aloud")
     psc.add_argument("--max-attempts", type=int, default=3, dest="max_attempts")
     psc.add_argument("--file", type=Path, default=Path("data/scenarios.jsonl"))
-    psc.add_argument("--no-color", action="store_true")
+    psc.add_argument("--no-color", action="store_true", default=argparse.SUPPRESS)
     psc.set_defaults(func=cmd_scene)
     return p
 
