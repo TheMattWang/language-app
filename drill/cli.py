@@ -159,7 +159,7 @@ def _fmt_interval(days: float) -> str:
 # reach the old `IndexError`/bad-`LIMIT` path).
 
 
-def _positive(name: str, value, *, minimum: int = 1) -> int:
+def _positive(name: str, value, *, minimum: int = 1, maximum: int = 1_000_000) -> int:
     """Parse `value` as an int and enforce `value >= minimum`.
 
     `name` is the argparse dest (underscores), converted to the flag's
@@ -175,10 +175,22 @@ def _positive(name: str, value, *, minimum: int = 1) -> int:
         raise argparse.ArgumentTypeError(f"{flag} must be an integer (got {value!r})")
     if n < minimum:
         raise argparse.ArgumentTypeError(f"{flag} must be >= {minimum} (got {n})")
+    # Bounded above as well: an int wider than 64 bits reaches SQLite and
+    # comes back as OverflowError from inside a query -- a traceback where
+    # every other bad value gets a one-line argparse message.
+    if n > maximum:
+        raise argparse.ArgumentTypeError(f"{flag} must be <= {maximum} (got {n})")
     return n
 
 
-def _validate(args: argparse.Namespace, name: str, *, minimum: int = 1, optional: bool = False) -> bool:
+def _validate(
+    args: argparse.Namespace,
+    name: str,
+    *,
+    minimum: int = 1,
+    maximum: int = 1_000_000,
+    optional: bool = False,
+) -> bool:
     """Validate `args.<name>` in place via `_positive`, printing one line
     to stderr and returning False on bad input instead of raising deep
     inside a query or a slice. `optional=True` skips validation when the
@@ -189,7 +201,7 @@ def _validate(args: argparse.Namespace, name: str, *, minimum: int = 1, optional
     if optional and value is None:
         return True
     try:
-        setattr(args, name, _positive(name, value, minimum=minimum))
+        setattr(args, name, _positive(name, value, minimum=minimum, maximum=maximum))
         return True
     except argparse.ArgumentTypeError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -268,6 +280,24 @@ def _report_no_cards(conn: sqlite3.Connection, deck: str | None) -> None:
             return
     print("No cards yet. Import a deck first:")
     print("  python3 -m drill import data/<deck>.jsonl")
+
+
+def _unknown_deck(conn: sqlite3.Connection, deck: str | None) -> bool:
+    """True (having said so) when `deck` matches nothing in a non-empty DB.
+
+    `review`/`daily`/`listen` already say this via `_report_no_cards`; the
+    read-only reports used to print an all-zero table instead, which reads
+    as "you have no history" rather than "that deck does not exist".
+    """
+    if deck is None:
+        return False
+    if store.deck_stats(conn, None).get("total", 0) == 0:
+        return False
+    if deck in _deck_names(conn):
+        return False
+    names = ", ".join(_deck_names(conn))
+    print(f"No deck named {deck!r}. Decks in this database: {names}.")
+    return True
 
 
 # --- commands ---------------------------------------------------------------
@@ -780,6 +810,15 @@ def _read_with_deadline(limit_s: float) -> tuple[str | None, int]:
 
     ready, _, _ = select.select([sys.stdin], [], [], max(0.0, limit_s))
     if not ready:
+        # Anything typed but not submitted belongs to the round that just
+        # expired. Left buffered, it prepends onto the next round's answer
+        # and is graded against a different card.
+        try:
+            import termios
+
+            termios.tcflush(sys.stdin, termios.TCIFLUSH)
+        except Exception:
+            pass
         return None, int(limit_s * 1000)
     line = sys.stdin.readline()
     if line == "":  # EOF on a real TTY fd, e.g. piped-in Ctrl-D
@@ -965,6 +1004,9 @@ def cmd_add(args: argparse.Namespace) -> int:
     if not prompt_en:
         print("error: prompt cannot be empty", file=sys.stderr)
         return 1
+    if not (args.deck or "").strip():
+        print("error: --deck cannot be empty", file=sys.stderr)
+        return 1
     if not accept:
         print("error: at least one accepted form is required", file=sys.stderr)
         return 1
@@ -1062,6 +1104,8 @@ def _deck_accuracy(conn: sqlite3.Connection, deck: str | None) -> float | None:
 def cmd_stats(args: argparse.Namespace) -> int:
     _set_color(getattr(args, "no_color", False))
     conn = store.connect(args.db)
+    if _unknown_deck(conn, args.deck):
+        return 1
     s = store.deck_stats(conn, args.deck)
     label = args.deck or "all decks"
     print(f"{BOLD}{label}{RESET}")
@@ -1082,6 +1126,8 @@ def cmd_export(args: argparse.Namespace) -> int:
         return 2
     _set_color(getattr(args, "no_color", False))
     conn = store.connect(args.db)
+    if _unknown_deck(conn, args.deck):
+        return 1
     now = _now()
 
     doc = export.build_markdown(
@@ -1114,6 +1160,8 @@ def cmd_weak(args: argparse.Namespace) -> int:
         return 2
     _set_color(getattr(args, "no_color", False))
     conn = store.connect(args.db)
+    if _unknown_deck(conn, args.deck):
+        return 1
     since = _now() - timedelta(days=args.days) if args.days else None
     tag_stats = store.tag_performance(conn, deck=args.deck, since=since)
     hard_cards = store.hardest_cards(conn, deck=args.deck, limit=args.limit)
@@ -1290,7 +1338,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except KeyboardInterrupt:
+        # Backstop. Commands that need to save progress catch this
+        # themselves first; this only keeps Ctrl-C from ever looking like
+        # a crash in one that doesn't.
+        print()
+        print("Stopped.")
+        return 130
 
 
 if __name__ == "__main__":

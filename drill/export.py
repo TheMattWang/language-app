@@ -130,6 +130,22 @@ def _days_until_flight(now: datetime) -> int:
     return (TRAVEL_DATE - now.date()).days
 
 
+# Only the characters that change *inline* rendering. Escaping the full
+# CommonMark set would litter ordinary Spanish sentences with backslashes
+# before every period and hyphen, which is worse than the problem.
+_MD_SPECIALS = str.maketrans({c: "\\" + c for c in r"\\`*_[]|"})
+
+
+def _md(text: str) -> str:
+    """Escape markdown metacharacters in authored card content.
+
+    Card text is Spanish written by hand, not markup: "*muy* bien" must
+    render as it was typed, and a note containing "_" must not break the
+    emphasis wrapper it gets interpolated into.
+    """
+    return text.translate(_MD_SPECIALS) if text else text
+
+
 def build_markdown(
     conn: sqlite3.Connection,
     *,
@@ -186,15 +202,15 @@ def build_markdown(
         for fc in failing:
             by_deck.setdefault(fc.card.deck, []).append(fc)
         for deck_name in sorted(by_deck):
-            lines.append(f"### {deck_name}")
+            lines.append(f"### {_md(deck_name)}")
             lines.append("")
             for fc in by_deck[deck_name]:
                 spanish, english = _spanish_form(fc.card)
-                lines.append(f"**{spanish}** ({fc.misses}/{fc.attempts} fallos)")
+                lines.append(f"**{_md(spanish)}** ({fc.misses}/{fc.attempts} fallos)")
                 if english:
-                    lines.append(f"> {english}")
+                    lines.append(f"> {_md(english)}")
                 if fc.card.note:
-                    lines.append(f"> _{fc.card.note}_")
+                    lines.append(f"> _{_md(fc.card.note)}_")
                 lines.append("")
     lines.append("")
 
@@ -208,9 +224,9 @@ def build_markdown(
         for card in trampas:
             correct, _ = _spanish_form(card)
             for bad in card.reject:
-                lines.append(f"- ✗ {bad} → ✓ {correct}")
+                lines.append(f"- ✗ {_md(bad)} → ✓ {_md(correct)}")
             if card.note:
-                lines.append(f"  _{card.note}_")
+                lines.append(f"  _{_md(card.note)}_")
     lines.append("")
 
     # 5. Closing

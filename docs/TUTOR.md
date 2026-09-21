@@ -40,7 +40,7 @@ the skill you'll actually use in Spain.
 **Ask:** *"Evalúame. Habla conmigo 10 minutos y dime mi nivel y mis tres peores errores."*
 
 - 10 min free conversation, no scaffolding — establishes the baseline
-- Then: **review `data/peninsular_contrast.jsonl` together**, ~10 min. 120 cards, LLM-authored, never checked by a native. Ask specifically about `pc-084`–`pc-093` (slang), which dates fastest.
+- Then: **review `data/peninsular_contrast.jsonl` together**, ~10 min. 115 cards, LLM-authored, never checked by a native. Ask specifically about `pc-084`–`pc-093` (slang), which dates fastest.
 - Last 10 min: restaurant roleplay, cold
 
 **You want to leave with:** a CEFR-ish level, three named errors, and a corrected card list.

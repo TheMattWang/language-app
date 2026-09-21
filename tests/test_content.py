@@ -91,3 +91,23 @@ def test_rejects_name_the_alternative(deck_path: Path) -> None:
             if v.layer == "L1_banned" and not v.detail:
                 silent.append(f"  {c['id']}: {r!r} rejected with no guidance")
     assert not silent, "\n".join(silent)
+
+
+@pytest.mark.parametrize("deck_path", DECKS, ids=lambda p: p.name)
+def test_no_card_shows_its_own_answer(deck_path: Path) -> None:
+    """A gap answerable by copying a visible word tests nothing.
+
+    Whole-word match on the Spanish half only: the English gloss after the
+    em dash is allowed to contain anything, and a substring hit ("es" inside
+    "español") is not a leak.
+    """
+    import re
+
+    leaks = []
+    for c in _load(deck_path):
+        spanish = c["prompt_en"].split("—")[0].lower()
+        for form in c["accept"]:
+            pattern = r"(?<![\wáéíóúñü])" + re.escape(form.lower()) + r"(?![\wáéíóúñü])"
+            if re.search(pattern, spanish):
+                leaks.append(f"  {c['id']}: prompt already contains {form!r}")
+    assert not leaks, "cards revealing their own answer:\n" + "\n".join(leaks)

@@ -92,7 +92,11 @@ def speak(text: str, *, voice: str | None = None, rate: int = 180, blocking: boo
     if v is None:
         return False
 
-    args = [SAY_BIN, "-v", v, "-r", str(rate), text]
+    # "--" terminates option parsing: a card beginning with "-" (a dash-led
+    # phrase, a minus sign in a price) would otherwise be read by `say` as a
+    # flag, and the non-blocking path below never sees the nonzero exit --
+    # it would report success having played nothing.
+    args = [SAY_BIN, "-v", v, "-r", str(rate), "--", text]
 
     try:
         if blocking:

@@ -63,13 +63,13 @@ wrong answer is worse than no answer.
 
 ## Decks
 
-460 cards in five decks, plus eight conversation scenarios.
+455 cards in five decks, plus eight conversation scenarios.
 
 | File | Cards | Covers |
 |---|---|---|
 | `data/travel_production.jsonl` | 100 | Full utterances: hotel, airport, restaurant, pharmacy, tickets, complaints |
 | `data/numbers_listening.jsonl` | 85 | Cardinals, prices, time, dates, platforms, quantities |
-| `data/peninsular_contrast.jsonl` | 120 | LatAm↔Spain lexicon, vosotros, false friends, colloquial |
+| `data/peninsular_contrast.jsonl` | 115 | LatAm↔Spain lexicon, vosotros, false friends, colloquial |
 | `data/cloze_grammar.jsonl` | 75 | Gap-fill: subjunctive triggers, irregulars, collocations |
 | `data/grammar_repair.jsonl` | 80 | ser/estar, preterite vs imperfect, subjunctive, por/para, clitics, gustar |
 
@@ -78,7 +78,7 @@ scenarios; it is a different schema, not a card deck, and `import` skips it.
 
 ## The daily load, honestly
 
-460 cards, none seen, 13 days left. `daily` divides one by the other and lands on about
+455 cards, none seen, 13 days left. `daily` divides one by the other and lands on about
 **36 new cards a day** against a 40-card session cap — so a session is 30+ minutes, not 15,
 and reviews start backing up on day two. The two honest options and what each costs are in
 [`docs/PROGRAM.md`](docs/PROGRAM.md#a-note-on-the-daily-load).
@@ -103,7 +103,7 @@ drill/          the tool (store, scheduler, grader, cli, tkinter app)
 data/           card decks, JSONL
 docs/           PROGRAM.md (the plan), RUNBOOK.md (operations), TUTOR.md (session briefs),
                 SURVIVAL.md, 00-constraints.md
-tests/          212 tests, including content validation over every deck
+tests/          314 tests, including content validation over every deck
 research/       historical; the original research corpus
 ```
 

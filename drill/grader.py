@@ -73,7 +73,19 @@ def _strip_trailing_politeness(toks: list[str]) -> list[str]:
 
 
 def _strip_leading_pronoun(toks: list[str]) -> list[str]:
-    if len(toks) > 1 and fold_accents(toks[0]) in _PRONOUNS_FOLDED:
+    if len(toks) <= 1:
+        return toks
+    head = fold_accents(toks[0])
+    if head in _PRONOUNS_FOLDED:
+        return toks[1:]
+    # A mistyped pronoun is still a pronoun. Without this, "vosoyros tenéis"
+    # keeps a token the accept form dropped, the lists come out different
+    # lengths, and every vosotros card fails on a single slip -- in the one
+    # deck where vosotros is the whole point.
+    if len(head) >= _SUB_MIN_LEN and any(
+        len(p) >= _SUB_MIN_LEN and edit_distance(head, p) <= 1
+        for p in _PRONOUNS_FOLDED
+    ):
         return toks[1:]
     return toks
 
@@ -84,19 +96,17 @@ def _strip_leading_article(toks: list[str]) -> list[str]:
     return toks
 
 
-def _canonicalize(toks: Sequence[str]) -> list[str]:
+def _canonicalize(toks: Sequence[str], *, politeness: bool = True) -> list[str]:
     """Strip politeness wrapping, optional leading subject pronoun, and a
     leading article — none of these should ever decide a verdict."""
     current = list(toks)
     changed = True
     while changed:
         changed = False
-        for strip_fn in (
-            _strip_leading_politeness,
-            _strip_trailing_politeness,
-            _strip_leading_pronoun,
-            _strip_leading_article,
-        ):
+        strippers = [_strip_leading_pronoun, _strip_leading_article]
+        if politeness:
+            strippers[:0] = [_strip_leading_politeness, _strip_trailing_politeness]
+        for strip_fn in strippers:
             updated = strip_fn(current)
             if updated != current:
                 current = updated
@@ -140,6 +150,65 @@ _OPTIONAL_TOKENS = frozenset(
 _SUB_MAX_CHAR_DIST = 2
 _SUB_MIN_LEN = 4
 
+# Every real Spanish word of one to three letters that a learner might
+# plausibly type here, accent-folded. Length alone cannot tell a typo from a
+# word swap -- "hoi" for "hoy" is a slip, "soy" for "estoy" is a different
+# verb -- but vocabulary can: if what was typed is not a word at all, it is a
+# typo. Short words carry most of Spanish's grammar (prepositions, articles,
+# clitics), which is exactly where a blunt length gate did the most damage.
+_SHORT_REAL_WORDS: frozenset[str] = frozenset(
+    """
+    a e o u y
+    ah al ay da de di do eh el en es ex fe ha he id ir la le lo me mi ni
+    no oh os pa pe re se si su te ti tu un va ve vi ya yo
+    ano aun bar con dar dan das dia dio dos doy ese esa eso
+    fin fue fui gas gol hay hoy ida iba las les los luz mal mar mas mes mis
+    muy nos oir par paz pan pie por que red rey rio sal san sed ser sin sol
+    son soy sur sus tal tan tez tia tio tus una uno uso van vas ven ver ves
+    vez vio vos voy
+    """.split()
+) | frozenset(
+    # Second tier: four- and five-letter words that sit within a typo's reach
+    # of a short one. Needed because the word typed can be longer than the
+    # word expected -- "para" for "por", "estoy" for "soy" -- and those are
+    # word confusions, not slips. Drawn from the deck vocabulary, so it is
+    # deliberately in-domain rather than exhaustive; a real word missing from
+    # it degrades to the old, more forgiving behaviour rather than to a
+    # wrong rejection.
+    """
+    adios agua aire algo alli aqui auto ayer años baja baño bien buen
+    buena busco cada cafe caro casa caso cero cien cola coman comen comi
+    como copa creo cual dale deja dejar desde dias dice diez digas dije
+    doce esta estan este esto estoy euro fila fresa frio fuera gafas grifo
+    guay guey gusto hace haga hago hice hora jugo kilo lana lata lejos
+    lunes madre majo malla mapa mayor media medio menos menu mesa miro
+    mismo niño nota ocho okey onda otra padre pagar pana papa para pasar
+    pedi pero pies piso pone poner quise rica rico robo ruido sabe saben
+    saldo sale salgo sali salia salir salis salud seis sepa señal sido
+    siga sois solo sono supe talla taxi tela tenia timo tinto tique todas
+    todo todos tomar tomo trae tren tres vais vale vamos vaso veces venga
+    vengo venid venis viene vimos vino visto viven zumo
+    """.split()
+)
+
+
+def _forgivable_substitution(attempt_tok: str, accept_tok: str) -> bool:
+    """True when `attempt_tok` reads as a mistyping of `accept_tok`.
+
+    The question is not how short the token is -- an earlier version gated on
+    length and got it wrong in both directions, forgiving "papa" for "para"
+    while refusing "hoi" for "hoy". What matters is whether what was typed is
+    a word: type a real, different Spanish word and you made an error; type
+    something that is not a word at all and you made a slip.
+
+    The lexicon is in-domain and partial by design. A real word missing from
+    it falls back to plain edit distance -- the older, more forgiving
+    behaviour -- so the failure mode is leniency, never a wrong rejection.
+    """
+    if edit_distance(attempt_tok, accept_tok) > _SUB_MAX_CHAR_DIST:
+        return False
+    return fold_accents(attempt_tok) not in _SHORT_REAL_WORDS
+
 
 
 # Spanish pairs distinguished ONLY by the accent (tilde diacrítica). Folding
@@ -165,6 +234,21 @@ def _is_diacritic_homograph(a: str, b: str) -> bool:
     """True when a and b are a real pair that differs only by the accent."""
     return a != b and frozenset((a, b)) in _DIACRITIC_HOMOGRAPHS
 
+def _is_droppable(tok: str) -> bool:
+    """True for a function word, or for a slip that can only be one.
+
+    "la" mistyped as "lc" is still the article: it is not a Spanish word, and
+    it is one keystroke from one. Requiring an exact match here made every
+    mistyped article fail the whole sentence.
+    """
+    folded = fold_accents(tok)
+    if folded in _OPTIONAL_TOKENS:
+        return True
+    if folded in _SHORT_REAL_WORDS:
+        return False
+    return any(edit_distance(folded, opt) <= 1 for opt in _OPTIONAL_TOKENS)
+
+
 def _close_enough(att: list[str], acc: list[str]) -> bool:
     """True when `att` differs from `acc` by one *forgivable* token.
 
@@ -184,16 +268,14 @@ def _close_enough(att: list[str], acc: list[str]) -> bool:
         if len(diffs) != 1:
             return False
         a_tok, b_tok = att[diffs[0]], acc[diffs[0]]
-        if min(len(a_tok), len(b_tok)) < _SUB_MIN_LEN:
-            return False
-        return edit_distance(a_tok, b_tok) <= _SUB_MAX_CHAR_DIST
+        return _forgivable_substitution(a_tok, b_tok)
 
     # Off by one token: allowed only when the extra token is a function word.
     if abs(len(att) - len(acc)) == 1:
         longer, shorter = (att, acc) if len(att) > len(acc) else (acc, att)
         for i in range(len(longer)):
             if longer[:i] + longer[i + 1 :] == shorter:
-                return longer[i] in _OPTIONAL_TOKENS
+                return _is_droppable(longer[i])
         return False
 
     return False
@@ -235,14 +317,26 @@ def grade(attempt: str, *, accept: Sequence[str], reject: Sequence[str] = ()) ->
 
     canon_attempt_tokens = _canonicalize(attempt_tokens)
     canon_attempt = " ".join(canon_attempt_tokens)
+    # A content word can collide with the politeness vocabulary: "hora"
+    # mistyped as "hola" gets stripped as a greeting and the sentence loses a
+    # token it needed. Keep an unstripped reading to compare against too.
+    literal_attempt_tokens = _canonicalize(attempt_tokens, politeness=False)
 
-    canon_accepts: list[tuple[str, list[str], str]] = []
+    canon_accepts: list[tuple[str, list[str], str, list[str]]] = []
     for original in accept:
-        canon_tokens_a = _canonicalize(tokens(original))
-        canon_accepts.append((original, canon_tokens_a, " ".join(canon_tokens_a)))
+        toks_a = tokens(original)
+        canon_tokens_a = _canonicalize(toks_a)
+        canon_accepts.append(
+            (
+                original,
+                canon_tokens_a,
+                " ".join(canon_tokens_a),
+                _canonicalize(toks_a, politeness=False),
+            )
+        )
 
     # L2: exact match (post-canonicalization), accent-sensitive.
-    for original, _canon_tokens_a, canon_str_a in canon_accepts:
+    for original, _canon_tokens_a, canon_str_a, _lit_a in canon_accepts:
         if canon_attempt == canon_str_a:
             return Verdict(
                 accepted=True,
@@ -254,7 +348,7 @@ def grade(attempt: str, *, accept: Sequence[str], reject: Sequence[str] = ()) ->
 
     # L3: matches once accents are folded — an accent slip, never a block.
     folded_attempt = fold_accents(canon_attempt)
-    for original, _canon_tokens_a, canon_str_a in canon_accepts:
+    for original, _canon_tokens_a, canon_str_a, _lit_a in canon_accepts:
         # When the whole expected answer is one token and the pair differs
         # only by the accent that distinguishes two real words (se/sé,
         # el/él), folding would accept the wrong word outright. That is
@@ -286,14 +380,18 @@ def grade(attempt: str, *, accept: Sequence[str], reject: Sequence[str] = ()) ->
     # `_close_enough` therefore requires that the one differing token be
     # lexically close (a typo or inflection), or that the inserted/dropped
     # token be a function word.
-    for original, canon_tokens_a, canon_str_a in canon_accepts:
+    for original, canon_tokens_a, canon_str_a, literal_tokens_a in canon_accepts:
         if _blocked_by_ene_tilde_confusion(canon_attempt, canon_str_a):
             continue
         # Same reason as at L3: edit distance would otherwise re-admit
         # the homograph the accent guard just excluded.
         if _is_diacritic_homograph(canon_attempt, canon_str_a):
             continue
-        if len(canon_tokens_a) > 1 and _close_enough(canon_attempt_tokens, canon_tokens_a):
+        if len(canon_tokens_a) >= 1 and (
+            _close_enough(canon_attempt_tokens, canon_tokens_a)
+            or _close_enough(literal_attempt_tokens, canon_tokens_a)
+            or _close_enough(literal_attempt_tokens, literal_tokens_a)
+        ):
             return Verdict(
                 accepted=True,
                 layer="L4_close",
@@ -303,8 +401,7 @@ def grade(attempt: str, *, accept: Sequence[str], reject: Sequence[str] = ()) ->
             )
         if (
             len(canon_tokens_a) == 1
-            and min(len(canon_attempt), len(canon_str_a)) >= _SUB_MIN_LEN
-            and edit_distance(canon_attempt, canon_str_a) <= 2
+            and _forgivable_substitution(canon_attempt, canon_str_a)
         ):
             return Verdict(
                 accepted=True,
@@ -317,7 +414,7 @@ def grade(attempt: str, *, accept: Sequence[str], reject: Sequence[str] = ()) ->
     # A rejection caused solely by n-for-ñ is correct but baffling unless we
     # say so: ñ is the one character that is never folded (ano/año), and a
     # learner typing on a US keyboard will hit this constantly.
-    for original, _canon_tokens_a, canon_str_a in canon_accepts:
+    for original, _canon_tokens_a, canon_str_a, _lit_a in canon_accepts:
         if _is_diacritic_homograph(canon_attempt, canon_str_a):
             return Verdict(
                 accepted=False,

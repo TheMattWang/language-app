@@ -10,7 +10,7 @@ nothing installed.
 
 ## 1. Start here tonight
 
-Zero prior state — 460 cards, none seen, no session ever run. From the repo root, in order:
+Zero prior state — 455 cards, none seen, no session ever run. From the repo root, in order:
 
 ```bash
 python3 -m drill import data/*.jsonl
@@ -21,7 +21,7 @@ id, and it skips `data/scenarios.jsonl`, which is a different schema.
 ```bash
 python3 -m drill stats
 ```
-Confirms the import worked: 460 cards, all new.
+Confirms the import worked: 455 cards, all new.
 
 ```bash
 python3 -m drill daily
@@ -36,13 +36,13 @@ python3 -m drill daily
 ```
 This is the one thing that still happens if the day collapses.
 
-**Read this before the first session.** Starting from 460 unseen cards with 13 days left,
+**Read this before the first session.** Starting from 455 unseen cards with 13 days left,
 the derived rate is ~36 new cards a day against a 40-card session cap — **30+ minutes, not
 15**, with almost no room left for reviews, so a backlog starts on day two. Two options:
 
 - Full set: run it as-is, ~36 new/day plus backlog passes. About an hour a day.
 - Reduced: `python3 -m drill daily --new 20`. ~20–25 minutes, reviews keep up, and roughly
-  200 of the 460 cards are never introduced before the flight — thinned across every deck,
+  200 of the 455 cards are never introduced before the flight — thinned across every deck,
   grammar and cloze worst.
 
 Pick one tonight and stay with it. The reasoning and the deck-order detail are in

@@ -3,7 +3,7 @@
 Departure 2026-10-03. Target: Peninsular Spanish, rusty intermediate, production-focused.
 
 This replaces a 19-day plan that opened 2026-09-15. None of it ran: no drill session has
-been done (`stats` reports 460 new, 0 reviewed) and no tutor session has been booked. The
+been done (`stats` reports 455 new, 0 reviewed) and no tutor session has been booked. The
 plan below is what is left, not what was hoped for.
 
 **The one number that matters:** tutor half-hours produce ~15–50× more Spanish out of your
@@ -94,7 +94,7 @@ once the trip starts.
 The new-card rate is **derived, not fixed**: `daily` divides the cards you haven't seen by
 the days left before Oct 3, and clamps the result to 40/day.
 
-Right now that arithmetic is ugly. 460 unseen cards over 13 days is **~36 new cards a day**,
+Right now that arithmetic is ugly. 455 unseen cards over 13 days is **~36 new cards a day**,
 against a session cap of 40 (`--max`). So:
 
 - A session is **30+ minutes**, not 15.
@@ -107,9 +107,9 @@ against a session cap of 40 (`--max`). So:
 Two honest options:
 
 1. **Drill the full set.** ~36 new/day plus whatever backlog you clear. Realistically an
-   hour a day on the tool, on top of the tutor. That is the price of seeing all 460 cards.
+   hour a day on the tool, on top of the tutor. That is the price of seeing all 455 cards.
 2. **`python3 -m drill daily --new 20`.** ~20–25 minutes, reviews mostly keep up, and about
-   260 of the 460 cards get introduced before the flight. Roughly 200 cards are never seen.
+   260 of the 455 cards get introduced before the flight. Roughly 200 cards are never seen.
 
 Which 200 you lose is worth knowing. New cards are dealt round-robin across decks in
 usefulness order — travel first, then numbers and contrast, then cloze, then grammar — so
@@ -139,18 +139,18 @@ miss), red wrong — and a red answer always shows the Spain form you wanted.
 
 ### Decks
 
-460 cards in five decks, listed in the order new cards are introduced in.
+455 cards in five decks, listed in the order new cards are introduced in.
 
 | File | Cards | What |
 |---|---|---|
 | `data/travel_production.jsonl` | 100 | Full utterances by scenario: hotel, airport, restaurant, bar, pharmacy, tickets, directions, shopping, problems, emergency |
 | `data/numbers_listening.jsonl` | 85 | Cardinals, prices, time, dates, platform/floor numbers, quantities |
-| `data/peninsular_contrast.jsonl` | 120 | LatAm↔Spain lexicon, vosotros, false friends, colloquial |
+| `data/peninsular_contrast.jsonl` | 115 | LatAm↔Spain lexicon, vosotros, false friends, colloquial |
 | `data/cloze_grammar.jsonl` | 75 | Gap-fill: subjunctive triggers, preterite/imperfect in context, irregulars, por/para, collocations |
 | `data/grammar_repair.jsonl` | 80 | ser/estar, preterite vs imperfect, subjunctive, por/para, clitics, gustar-type, common learner errors |
 
 `data/scenarios.jsonl` holds eight multi-turn conversations. Different schema, not a card
-deck, not part of the 460, and `import` skips it.
+deck, not part of the 455, and `import` skips it.
 
 ```bash
 python3 -m drill import data/*.jsonl

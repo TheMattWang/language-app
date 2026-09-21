@@ -226,7 +226,10 @@ def backup_db(db_path: Path, *, keep: int = 5) -> Path | None:
             for stale in backups[keep:]:
                 stale.unlink(missing_ok=True)
 
-        return dest_path
+        # Pruning can delete the snapshot just taken (keep=0). Returning its
+        # path anyway would tell a caller checking for non-None that it has a
+        # backup it does not have.
+        return dest_path if dest_path.exists() else None
     except Exception:
         return None
 
@@ -234,7 +237,17 @@ def backup_db(db_path: Path, *, keep: int = 5) -> Path | None:
 def import_jsonl(conn: sqlite3.Connection, path: Path) -> ImportResult:
     """Upsert cards from a JSONL file. Safely re-runnable. One transaction."""
     path = Path(path)
-    lines = path.read_text(encoding="utf-8").splitlines()
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except UnicodeDecodeError as exc:
+        return ImportResult(
+            added=0,
+            updated=0,
+            unchanged=0,
+            errors=(f"{path.name}: not valid UTF-8 ({exc.reason} at byte {exc.start})",),
+        )
+    except OSError as exc:
+        return ImportResult(added=0, updated=0, unchanged=0, errors=(f"{path.name}: {exc.strerror}",))
 
     for raw_line in lines:
         line = raw_line.strip()
@@ -244,7 +257,9 @@ def import_jsonl(conn: sqlite3.Connection, path: Path) -> ImportResult:
             first_obj = json.loads(line)
         except json.JSONDecodeError:
             first_obj = None
-        if isinstance(first_obj, dict) and not all(k in first_obj for k in _CARD_KEYS):
+        # `none of` rather than `not all of`: a card missing one field is a
+        # bad row to report per-line, not a reason to drop the whole file.
+        if isinstance(first_obj, dict) and not any(k in first_obj for k in _CARD_KEYS):
             return ImportResult(
                 added=0,
                 updated=0,
@@ -271,7 +286,12 @@ def import_jsonl(conn: sqlite3.Connection, path: Path) -> ImportResult:
 
     now_iso = _iso(datetime.now(timezone.utc))
 
-    conn.execute("BEGIN")
+    # BEGIN IMMEDIATE, not a plain BEGIN: a deferred transaction takes its
+    # read snapshot at the first statement, so two concurrent importers pin
+    # conflicting snapshots and the loser dies on SQLITE_BUSY_SNAPSHOT --
+    # which busy_timeout cannot retry, because it is a conflict, not a wait.
+    # Taking the write lock up front makes the second importer queue instead.
+    conn.execute("BEGIN IMMEDIATE")
     try:
         cur = conn.cursor()
         for lineno, raw_line in enumerate(lines, start=1):
@@ -482,8 +502,13 @@ def new_cards_introduced_today(
     A card is "introduced" the day it is first reviewed, not the day it was
     imported -- `MIN(reviewed_at)` per card_id is the source of truth.
     """
-    day_start = now.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    day_end = day_start + timedelta(days=1)
+    # Local midnight, not UTC midnight. A Pacific-time user drilling at 6pm
+    # is already into the next UTC day, so a UTC boundary silently granted a
+    # second full allowance of new cards partway through the evening.
+    local_now = now.astimezone()
+    local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_start = local_start.astimezone(timezone.utc)
+    day_end = (local_start + timedelta(days=1)).astimezone(timezone.utc)
 
     query = "SELECT review.card_id AS card_id, MIN(review.reviewed_at) AS first_reviewed_at FROM review"
     params: list = []
