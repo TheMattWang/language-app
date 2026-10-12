@@ -1,5 +1,7 @@
 # 10 — Local translation for the immersion word-swap: the deck, not the model, should choose and inflect
 
+> **Correction (2026-10-12, research/13):** the "tc-big" timings below were measured on the base `opus-mt-en-es` (78M). Real `opus-mt-tc-big-en-es` is 226 MB on disk, adds ~545 MB RAM, and runs ~2× slower. Research/13 also reverses this doc for the sentence and full-text stages of immersion.
+
 Compiled 2026-10-12. The question is which local model should do in-context EN→ES translation for
 the immersion feature, where some English words or phrases in reading text are swapped for Spanish
 that fits grammatically (gender, number, conjugation) and matches the learner's dialect (es-ES or
