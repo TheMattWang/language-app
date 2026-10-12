@@ -12,6 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest"]
+mlx = ["mlx-lm"]
 
 [project.scripts]
 drill = "drill.cli:main"

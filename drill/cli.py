@@ -1324,6 +1324,40 @@ def cmd_gui(args: argparse.Namespace) -> int:
     return run(db_path=args.db, deck=args.deck, limit=args.limit, new_per_day=args.new)
 
 
+def cmd_probe(args: argparse.Namespace) -> int:
+    """Run the adversarial probes against a local model and print pass rates.
+
+    Exit 0 when every probe meets `--min-pass`, 1 when one doesn't, 3 when
+    the model can't be reached.
+    """
+    from drill import llm, probes
+
+    _set_color(getattr(args, "no_color", False))
+    variety = args.dialect or store.get_dialect(store.connect(args.db))
+    try:
+        results = probes.run(
+            variety=variety, samples=args.samples, backend=args.backend, model=args.model
+        )
+    except llm.LLMUnavailable as exc:
+        print(str(exc), file=sys.stderr)
+        return 3
+
+    model = args.model or llm.DEFAULT_MODELS[args.backend]
+    print(f"{model} via {args.backend}, {variety}, {args.samples} sample(s) per probe\n")
+    ok = True
+    for r in results:
+        passed = r.pass_rate >= args.min_pass
+        ok = ok and passed
+        colour = GREEN if passed else RED
+        median = sorted(r.seconds)[len(r.seconds) // 2]
+        print(f"  {colour}{r.pass_rate:4.0%}{RESET}  {r.probe.name:<12} median {median:.2f}s")
+        if args.verbose or not passed:
+            for text, why in zip(r.replies, r.failures):
+                mark = "ok" if not why else "; ".join(why)
+                print(f"        [{mark}] {text[:160]!r}")
+    return 0 if ok else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="drill", description="Spanish production drill")
     p.add_argument("--db", type=Path, default=store.DEFAULT_DB, help="database path")
@@ -1341,6 +1375,16 @@ def build_parser() -> argparse.ArgumentParser:
     pst.add_argument("--goal-date", default=None, help="YYYY-MM-DD, or 'none' to clear")
     pst.add_argument("--no-color", action="store_true", default=argparse.SUPPRESS)
     pst.set_defaults(func=cmd_setup)
+
+    pp = sub.add_parser("probe", help="test a local model against the adversarial probes")
+    pp.add_argument("--backend", choices=("ollama", "mlx"), default="ollama")
+    pp.add_argument("--model", default=None)
+    pp.add_argument("--dialect", choices=store.DIALECTS, default=None)
+    pp.add_argument("--samples", type=functools.partial(_positive, "samples"), default=5)
+    pp.add_argument("--min-pass", type=float, default=0.8)
+    pp.add_argument("-v", "--verbose", action="store_true", help="show every reply")
+    pp.add_argument("--no-color", action="store_true", default=argparse.SUPPRESS)
+    pp.set_defaults(func=cmd_probe)
 
     pi = sub.add_parser("import", help="import card JSONL files")
     pi.add_argument("paths", nargs="+")
