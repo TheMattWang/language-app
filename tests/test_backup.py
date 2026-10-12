@@ -139,7 +139,7 @@ def test_import_does_not_back_up_on_fresh_database(tmp_path: Path) -> None:
 
 def test_import_of_scenarios_schema_yields_single_clear_error(tmp_path: Path) -> None:
     conn = store.connect(tmp_path / "drill.db")
-    scenarios_path = Path(__file__).parent.parent / "data" / "scenarios.jsonl"
+    scenarios_path = Path(__file__).parent.parent / "data" / "es" / "scenarios.jsonl"
 
     result = store.import_jsonl(conn, scenarios_path)
 

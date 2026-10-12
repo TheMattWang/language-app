@@ -9,7 +9,7 @@ import pytest
 from drill import cli, store
 from drill.scenario import Scenario, Turn, load, validate
 
-DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "scenarios.jsonl"
+DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "es" / "scenarios.jsonl"
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 

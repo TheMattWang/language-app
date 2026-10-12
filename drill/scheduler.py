@@ -1,15 +1,17 @@
-"""SM-2-derived spaced-repetition scheduler for a 19-day Spanish drill.
+"""SM-2-derived spaced-repetition scheduler for the drill tool.
 
 Pure, stdlib-only, no I/O. See ``new_state``, ``review``, and
 ``intervals_preview`` for the public API.
 
 HORIZON RULE (the one non-standard piece of this module)
 ----------------------------------------------------------
-The user leaves for Spain on 2026-10-03T00:00:00+00:00 (``DEFAULT_HORIZON``).
-An interval that would land a card's next review *after* that date is
-useless -- the card would never be seen again before the trip.
+A learner may set a goal date (a trip, an exam) -- the ``horizon``. An
+interval that would land a card's next review *after* that date is useless
+for the goal: the card would never be seen again before it. With no goal
+date (``horizon=None``, the default) there is no clamp and plain SM-2
+applies.
 
-So every computed interval is passed through a horizon clamp:
+When a horizon is set, every computed interval is passed through a clamp:
 
 * If ``now`` is already at or past ``horizon``, the clamp is a no-op --
   normal SM-2 intervals apply unmodified (the tool stays useful after the
@@ -45,14 +47,12 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from enum import IntEnum
 
 __all__ = ["Grade", "SchedState", "new_state", "review", "intervals_preview"]
 
 # --- constants -------------------------------------------------------------
-
-DEFAULT_HORIZON: datetime = datetime(2026, 10, 3, 0, 0, 0, tzinfo=timezone.utc)
 
 MINUTE_DAYS: float = 1.0 / 1440.0
 
@@ -152,13 +152,13 @@ def _review_transition(s: SchedState, grade: Grade) -> tuple[float, str, float, 
 
 
 def _due_with_horizon(
-    now: datetime, interval_days: float, horizon: datetime
+    now: datetime, interval_days: float, horizon: datetime | None
 ) -> tuple[datetime, float]:
     """Apply the horizon clamp (see module docstring) and return
     (due_at, effective_interval_days)."""
     raw_due = now + timedelta(days=interval_days)
 
-    if now >= horizon or raw_due <= horizon:
+    if horizon is None or now >= horizon or raw_due <= horizon:
         return raw_due, interval_days
 
     remaining = horizon - now
@@ -191,11 +191,8 @@ def review(
 ) -> SchedState:
     """Return the NEXT state after reviewing ``s`` with ``grade`` at ``now``.
 
-    Pure: does not mutate ``s``.
+    Pure: does not mutate ``s``. ``horizon=None`` means no goal date.
     """
-    if horizon is None:
-        horizon = DEFAULT_HORIZON
-
     if s.state in ("new", "learning"):
         interval, next_state, ease = _learning_transition(s, grade)
         did_lapse = False

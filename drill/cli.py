@@ -2,7 +2,7 @@
 
 Three commands:
 
-    python3 -m drill import data/peninsular_contrast.jsonl
+    python3 -m drill import data/es/peninsular_contrast.jsonl
     python3 -m drill review --deck peninsular_contrast --limit 20
     python3 -m drill stats
 
@@ -29,11 +29,11 @@ import sqlite3
 import statistics
 import sys
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Sequence
 
-from drill import cloze, export, scenario, speech, store
+from drill import cloze, export, packs, scenario, speech, store
 from drill.grader import DEFAULT_REJECT_REASON, Verdict, grade as grade_attempt
 from drill.scheduler import Grade, SchedState, review as reschedule
 
@@ -213,48 +213,50 @@ def _validate(
 
 def _bootstrap_if_empty(conn: sqlite3.Connection) -> None:
     """First-run convenience: if the database has zero cards at all (not
-    just none due), auto-import the bundled decks from the repo's `data/`
-    directory so `daily`/`review`/`listen`/`sprint` are usable immediately
-    with no manual `drill import` step first.
+    just none due), auto-import the bundled decks for the learner's dialect
+    so `daily`/`review`/`listen`/`sprint` are usable immediately with no
+    manual `drill import` step first.
 
-    Resolved relative to this package's own location (`drill/cli.py`'s
-    parent's parent), not the working directory, so it works no matter
-    where the CLI is invoked from. `data/scenarios.jsonl` is explicitly
-    skipped -- it's turn-based NPC dialogue, not cards -- and
-    `store.import_jsonl` itself already no-ops (no rows written) on any
-    other file whose objects lack the `deck`/`kind`/`accept` shape, so a
-    stray non-card file in `data/` is silently skipped rather than
-    imported or crashing.
+    The pack is resolved relative to this package's own location
+    (`drill/cli.py`'s parent's parent), not the working directory, so it
+    works no matter where the CLI is invoked from. `store.import_jsonl`
+    no-ops (no rows written) on any file whose objects lack the
+    `deck`/`kind`/`accept` shape, so a stray non-card file in the pack is
+    silently skipped rather than imported or crashing.
     """
     total = conn.execute("SELECT COUNT(*) FROM card").fetchone()[0]
     if total > 0:
         return
+    _import_pack(conn, store.get_dialect(conn), announce="First run: auto-imported")
 
-    data_dir = Path(__file__).resolve().parent.parent / "data"
-    if not data_dir.is_dir():
+
+def _import_pack(conn: sqlite3.Connection, variety: str, *, announce: str) -> list[str]:
+    """Import the bundled decks that serve `variety`; return their names."""
+    pack = packs.load(root=Path(__file__).resolve().parent.parent / "data")
+    if not pack.path.is_dir():
         print(
             "No cards yet, and no bundled data/ directory found. Import a deck first:\n"
-            "  python3 -m drill import data/<deck>.jsonl"
+            f"  python3 -m drill import data/{packs.DEFAULT_LANGUAGE}/<deck>.jsonl"
         )
-        return
+        return []
 
     imported: list[str] = []
-    for path in sorted(data_dir.glob("*.jsonl")):
-        if path.name == "scenarios.jsonl":
-            continue
-        result = store.import_jsonl(conn, path)
+    for path in pack.deck_paths(variety):
+        result = store.import_jsonl(conn, path, variety=variety)
         if result.errors:
             continue  # not a card deck (wrong schema) -- skip silently
+        store.remove_cards(conn, result.skipped)
         if result.added or result.updated:
             imported.append(path.stem)
 
     if imported:
-        print(f"First run: auto-imported bundled deck(s): {', '.join(imported)}\n")
-    else:
+        print(f"{announce} bundled deck(s): {', '.join(imported)}\n")
+    elif conn.execute("SELECT 1 FROM card LIMIT 1").fetchone() is None:
         print(
-            "No cards yet, and no bundled decks found in data/. Import one first:\n"
-            "  python3 -m drill import data/<deck>.jsonl"
+            f"No cards yet, and no bundled decks found in {pack.path}. Import one first:\n"
+            f"  python3 -m drill import data/{pack.language}/<deck>.jsonl"
         )
+    return imported
 
 
 def _deck_names(conn: sqlite3.Connection) -> list[str]:
@@ -279,7 +281,7 @@ def _report_no_cards(conn: sqlite3.Connection, deck: str | None) -> None:
             print(f"No deck named {deck!r}. Decks in this database: {', '.join(names)}.")
             return
     print("No cards yet. Import a deck first:")
-    print("  python3 -m drill import data/<deck>.jsonl")
+    print("  python3 -m drill import data/es/<deck>.jsonl")
 
 
 def _unknown_deck(conn: sqlite3.Connection, deck: str | None) -> bool:
@@ -301,6 +303,88 @@ def _unknown_deck(conn: sqlite3.Connection, deck: str | None) -> bool:
 
 
 # --- commands ---------------------------------------------------------------
+
+
+_DIALECT_LABELS = {"es-ES": "Spain", "es-419": "Latin America"}
+
+
+def _parse_goal_date(text: str) -> date | None:
+    """`YYYY-MM-DD` -> date; blank or `none` -> None. Raises ValueError."""
+    text = text.strip().lower()
+    if text in ("", "none"):
+        return None
+    return date.fromisoformat(text)
+
+
+def cmd_setup(args: argparse.Namespace) -> int:
+    """Choose a dialect and an optional goal date, then import the decks
+    for that dialect. Safe to re-run: changing the dialect re-imports, and
+    removes the cards the new dialect doesn't serve.
+
+    Flags answer without prompting; any question a flag doesn't answer is
+    asked interactively when stdin is a terminal, and otherwise keeps its
+    current value.
+    """
+    _set_color(getattr(args, "no_color", False))
+    conn = store.connect(args.db)
+    interactive = sys.stdin.isatty()
+    old_dialect = store.get_dialect(conn)
+
+    new_dialect = args.dialect
+    if new_dialect is None and interactive:
+        print("Which Spanish do you want to learn?")
+        print("  1) Spain (vosotros, coche, móvil)")
+        print("  2) Latin America (ustedes, carro, celular)")
+        default = "2" if old_dialect == "es-419" else "1"
+        try:
+            choice = input(f"  [{default}] > ").strip() or default
+        except EOFError:
+            choice = default
+        new_dialect = {"1": "es-ES", "2": "es-419"}.get(choice)
+        if new_dialect is None:
+            print(f"Not an option: {choice!r}", file=sys.stderr)
+            return 2
+    new_dialect = new_dialect or old_dialect
+
+    goal_changed = False
+    goal: date | None = None
+    if args.goal_date is not None:
+        try:
+            goal = _parse_goal_date(args.goal_date)
+        except ValueError:
+            print(f"Goal date must be YYYY-MM-DD or 'none', got {args.goal_date!r}", file=sys.stderr)
+            return 2
+        goal_changed = True
+    elif interactive:
+        print("Studying toward a date (a trip, an exam)? Enter YYYY-MM-DD, or leave blank.")
+        try:
+            raw = input("  > ")
+        except EOFError:
+            raw = ""
+        try:
+            goal = _parse_goal_date(raw)
+        except ValueError:
+            print(f"Goal date must be YYYY-MM-DD, got {raw!r}", file=sys.stderr)
+            return 2
+        goal_changed = True
+
+    if goal_changed:
+        if goal is not None and goal <= _now().date():
+            print(f"Goal date {goal} is not in the future.", file=sys.stderr)
+            return 2
+        store.set_setting(conn, store.SETTING_GOAL_DATE, goal.isoformat() if goal else None)
+    store.set_setting(conn, store.SETTING_DIALECT, new_dialect)
+
+    has_cards = conn.execute("SELECT 1 FROM card LIMIT 1").fetchone() is not None
+    if not has_cards or new_dialect != old_dialect:
+        _import_pack(conn, new_dialect, announce="Imported")
+
+    current_goal = store.goal_horizon(conn)
+    print(f"Dialect: {_DIALECT_LABELS.get(new_dialect, new_dialect)}")
+    print(f"Goal date: {current_goal.date() if current_goal else 'none (steady pace)'}")
+    print("Next: python3 -m drill daily")
+    conn.close()
+    return 0
 
 
 def cmd_import(args: argparse.Namespace) -> int:
@@ -373,7 +457,9 @@ def _grade_and_reschedule(
     sched_grade = _verdict_to_grade(verdict)
 
     before = row.interval_days
-    next_state = reschedule(_to_sched_state(row), sched_grade, now)
+    next_state = reschedule(
+        _to_sched_state(row), sched_grade, now, horizon=store.goal_horizon(conn)
+    )
     store.save_sched(conn, _to_sched_row(card.card_id, next_state))
     store.record_review(
         conn,
@@ -488,7 +574,9 @@ def cmd_daily(args: argparse.Namespace) -> int:
     new_per_day = args.new
     derived = new_per_day is None
     if derived:
-        new_per_day = store.suggested_new_per_day(conn, now, deck=args.deck)
+        new_per_day = store.suggested_new_per_day(
+            conn, now, horizon=store.goal_horizon(conn), deck=args.deck
+        )
     queue = store.daily_queue(
         conn, now, deck=args.deck, new_per_day=new_per_day, max_cards=args.max
     )
@@ -633,6 +721,8 @@ def cmd_scene(args: argparse.Namespace) -> int:
     changes. Scenarios are not cards and must not corrupt SRS state.
     """
     c = _set_color(getattr(args, "no_color", False))
+    if args.file is None:
+        args.file = packs.load().scenarios_path
     scenarios, errors = scenario.load(args.file)
     for e in errors[:20]:
         print(f"warning: {e}", file=sys.stderr)
@@ -1246,6 +1336,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-color", action="store_true", help="disable ANSI colour output")
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    pst = sub.add_parser("setup", help="choose your dialect and an optional goal date")
+    pst.add_argument("--dialect", choices=store.DIALECTS, default=None)
+    pst.add_argument("--goal-date", default=None, help="YYYY-MM-DD, or 'none' to clear")
+    pst.add_argument("--no-color", action="store_true", default=argparse.SUPPRESS)
+    pst.set_defaults(func=cmd_setup)
+
     pi = sub.add_parser("import", help="import card JSONL files")
     pi.add_argument("paths", nargs="+")
     pi.add_argument("--no-color", action="store_true", default=argparse.SUPPRESS)
@@ -1340,7 +1436,7 @@ def build_parser() -> argparse.ArgumentParser:
     psc.add_argument("--list", action="store_true", help="list available scenarios and exit")
     psc.add_argument("--speak", action="store_true", help="speak NPC lines aloud")
     psc.add_argument("--max-attempts", type=int, default=3, dest="max_attempts")
-    psc.add_argument("--file", type=Path, default=Path("data/scenarios.jsonl"))
+    psc.add_argument("--file", type=Path, default=None, help="scenario JSONL (default: the bundled pack's)")
     psc.add_argument("--no-color", action="store_true", default=argparse.SUPPRESS)
     psc.set_defaults(func=cmd_scene)
     return p

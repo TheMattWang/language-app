@@ -1,0 +1,13 @@
+{
+  "language": "es",
+  "name": "Spanish",
+  "varieties": {"es-ES": "Spain", "es-419": "Latin America"},
+  "scenarios": "scenarios.jsonl",
+  "decks": {
+    "travel_production": {"varieties": ["es-ES", "es-419"]},
+    "numbers_listening": {"varieties": ["es-ES", "es-419"]},
+    "peninsular_contrast": {"varieties": ["es-ES"]},
+    "cloze_grammar": {"varieties": ["es-ES", "es-419"]},
+    "grammar_repair": {"varieties": ["es-ES", "es-419"]}
+  }
+}

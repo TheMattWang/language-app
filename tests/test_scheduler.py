@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from drill.scheduler import (
-    DEFAULT_HORIZON,
     Grade,
     SchedState,
     intervals_preview,
@@ -15,6 +14,9 @@ from drill.scheduler import (
 )
 
 UTC = timezone.utc
+
+# A goal date for the clamp tests (the original trip date; any date works).
+HORIZON = datetime(2026, 10, 3, tzinfo=UTC)
 
 
 def dt(y: int, m: int, d: int, h: int = 0, mi: int = 0) -> datetime:
@@ -245,8 +247,15 @@ def test_intervals_preview_agrees_with_review_during_learning() -> None:
 # --- horizon clamp -------------------------------------------------------
 
 
-def test_default_horizon_is_departure_date() -> None:
-    assert DEFAULT_HORIZON == dt(2026, 10, 3)
+def test_no_goal_date_means_no_clamp() -> None:
+    now = dt(2026, 9, 20)
+    s = SchedState(
+        due_at=now, interval_days=30.0, ease=2.5, reps=10, lapses=0,
+        state="review", last_reviewed_at=now - timedelta(days=30),
+    )
+    result = review(s, Grade.GOOD, now)  # horizon=None
+    assert result.interval_days == pytest.approx(30.0 * 2.5)
+    assert result.due_at == now + timedelta(days=30.0 * 2.5)
 
 
 def test_horizon_clamp_pulls_mature_card_before_departure() -> None:
@@ -261,18 +270,18 @@ def test_horizon_clamp_pulls_mature_card_before_departure() -> None:
         last_reviewed_at=now - timedelta(days=30),
     )
     # Unclamped GOOD would be 30 * 2.5 = 75 days out -> way past 2026-10-03.
-    result = review(s, Grade.GOOD, now)  # default horizon
-    assert result.due_at < DEFAULT_HORIZON
+    result = review(s, Grade.GOOD, now, horizon=HORIZON)
+    assert result.due_at < HORIZON
     assert result.due_at > now
 
     # Roughly half the remaining time (13 days -> ~6.5 days), floored at 1 day.
-    remaining = DEFAULT_HORIZON - now
+    remaining = HORIZON - now
     expected = now + remaining / 2
     assert abs((result.due_at - expected).total_seconds()) < 60
 
 
 def test_horizon_clamp_disengages_once_past_horizon() -> None:
-    now = DEFAULT_HORIZON + timedelta(days=5)
+    now = HORIZON + timedelta(days=5)
     s = SchedState(
         due_at=now,
         interval_days=30.0,
@@ -282,7 +291,7 @@ def test_horizon_clamp_disengages_once_past_horizon() -> None:
         state="review",
         last_reviewed_at=now - timedelta(days=30),
     )
-    result = review(s, Grade.GOOD, now)  # default horizon, but now is past it
+    result = review(s, Grade.GOOD, now, horizon=HORIZON)  # now is past it
     assert result.interval_days == pytest.approx(30.0 * 2.5)
     assert result.due_at == now + timedelta(days=30.0 * 2.5)
 
@@ -290,7 +299,7 @@ def test_horizon_clamp_disengages_once_past_horizon() -> None:
 def test_horizon_clamp_floor_does_not_overshoot_when_close_to_departure() -> None:
     # Less than a day of runway left: the 1-day floor would itself land
     # past the horizon, so the fallback (just before horizon) must apply.
-    now = DEFAULT_HORIZON - timedelta(hours=12)
+    now = HORIZON - timedelta(hours=12)
     s = SchedState(
         due_at=now,
         interval_days=30.0,
@@ -300,8 +309,8 @@ def test_horizon_clamp_floor_does_not_overshoot_when_close_to_departure() -> Non
         state="review",
         last_reviewed_at=now - timedelta(days=30),
     )
-    result = review(s, Grade.GOOD, now)
-    assert now < result.due_at < DEFAULT_HORIZON
+    result = review(s, Grade.GOOD, now, horizon=HORIZON)
+    assert now < result.due_at < HORIZON
 
 
 def test_horizon_clamp_never_schedules_past_the_horizon(tmp_path=None) -> None:
@@ -313,14 +322,14 @@ def test_horizon_clamp_never_schedules_past_the_horizon(tmp_path=None) -> None:
     """
     from datetime import timedelta as _td
 
-    horizon = DEFAULT_HORIZON
+    horizon = HORIZON
     for seconds_before in (3600, 600, 90, 59, 30, 1):
         now = horizon - _td(seconds=seconds_before)
         s = SchedState(
             due_at=now, interval_days=30.0, ease=2.5, reps=5, lapses=0,
             state="review", last_reviewed_at=None,
         )
-        nxt = review(s, Grade.GOOD, now)
+        nxt = review(s, Grade.GOOD, now, horizon=horizon)
         if seconds_before > 60:
             assert nxt.due_at < horizon, (
                 f"{seconds_before}s before horizon -> due {nxt.due_at} is past it"

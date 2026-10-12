@@ -18,9 +18,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Sequence
 
+from drill import dialect
+
 _CARD_KEYS = ("deck", "kind", "accept")
 
 DEFAULT_DB = Path.home() / ".langapp" / "drill.db"
+
+# New cards a day when there is no goal date to pace against.
+SUSTAINABLE_NEW_PER_DAY = 15
 
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
@@ -112,6 +117,8 @@ class ImportResult:
     updated: int
     unchanged: int
     errors: tuple[str, ...]
+    # Card ids not served for the requested variety (see drill.dialect).
+    skipped: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -261,8 +268,15 @@ def backup_db(db_path: Path, *, keep: int = 5) -> Path | None:
         return None
 
 
-def import_jsonl(conn: sqlite3.Connection, path: Path) -> ImportResult:
-    """Upsert cards from a JSONL file. Safely re-runnable. One transaction."""
+def import_jsonl(
+    conn: sqlite3.Connection, path: Path, *, variety: str | None = None
+) -> ImportResult:
+    """Upsert cards from a JSONL file. Safely re-runnable. One transaction.
+
+    With `variety`, each card's answer lists are resolved for it and cards
+    not served for it are left out and reported in `skipped`
+    (see drill.dialect). Without it, cards import exactly as authored.
+    """
     path = Path(path)
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
@@ -310,6 +324,7 @@ def import_jsonl(conn: sqlite3.Connection, path: Path) -> ImportResult:
     updated = 0
     unchanged = 0
     errors: list[str] = []
+    skipped: list[str] = []
 
     now_iso = _iso(datetime.now(timezone.utc))
 
@@ -350,6 +365,13 @@ def import_jsonl(conn: sqlite3.Connection, path: Path) -> ImportResult:
             except (KeyError, ValueError) as exc:
                 errors.append(f"line {lineno}: {exc}")
                 continue
+
+            if variety is not None:
+                resolved = dialect.resolve(obj, accept, reject, variety)
+                if resolved is None:
+                    skipped.append(card_id)
+                    continue
+                accept, reject = resolved
 
             content_hash = _content_hash(kind, prompt_en, accept, reject, note, tags, deck)
 
@@ -403,7 +425,10 @@ def import_jsonl(conn: sqlite3.Connection, path: Path) -> ImportResult:
         conn.rollback()
         raise
 
-    return ImportResult(added=added, updated=updated, unchanged=unchanged, errors=tuple(errors))
+    return ImportResult(
+        added=added, updated=updated, unchanged=unchanged,
+        errors=tuple(errors), skipped=tuple(skipped),
+    )
 
 
 def due_cards(
@@ -491,18 +516,18 @@ def suggested_new_per_day(
 
     Hard-coding this number went wrong three times: every deck added makes
     the arithmetic tighter, and the failure is silent -- the last cards are
-    simply never introduced before the flight. Deriving it from the
+    simply never introduced before the goal date. Deriving it from the
     remaining cards and the remaining days means adding a deck re-paces the
     plan automatically.
 
     Clamped to [floor, ceiling]: a ceiling because there is a limit to what
     fits in one sitting, a floor so the tool never stops introducing
-    material. Past the horizon there is no deadline left to pace against, so
-    it settles at a sustainable default.
+    material. With no goal date (`horizon=None`), or once it has passed,
+    there is no deadline to pace against, so it settles at a sustainable
+    default.
     """
-    from drill.scheduler import DEFAULT_HORIZON
-
-    horizon = horizon or DEFAULT_HORIZON
+    if horizon is None:
+        return min(ceiling, max(floor, SUSTAINABLE_NEW_PER_DAY))
 
     q = "SELECT COUNT(*) AS n FROM sched JOIN card USING (card_id) WHERE sched.state = 'new'"
     params: list = []
@@ -515,7 +540,7 @@ def suggested_new_per_day(
 
     days_left = (horizon - now).total_seconds() / 86400.0
     if days_left <= 0:
-        return min(ceiling, max(floor, 15))
+        return min(ceiling, max(floor, SUSTAINABLE_NEW_PER_DAY))
 
     needed = math.ceil(remaining / max(1.0, days_left))
     return min(ceiling, max(floor, needed))
@@ -844,3 +869,65 @@ def hardest_cards(
         card = _row_to_card(row)
         results.append((card, row["attempts"], row["misses"]))
     return results
+
+
+# --- settings ----------------------------------------------------------------
+# Learner choices made at `drill setup`. A key-value table rather than
+# columns: `CREATE TABLE IF NOT EXISTS` reaches existing installs, a new
+# column would not (there is no migration runner).
+
+SETTING_GOAL_DATE = "goal_date"  # ISO date, e.g. "2026-12-20"; absent = none
+SETTING_DIALECT = "dialect"      # one of DIALECTS
+DIALECTS = ("es-ES", "es-419")
+DEFAULT_DIALECT = "es-ES"
+
+
+def get_setting(conn: sqlite3.Connection, key: str, default: str | None = None) -> str | None:
+    row = conn.execute("SELECT value FROM setting WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def set_setting(conn: sqlite3.Connection, key: str, value: str | None) -> None:
+    """Store `value` under `key`; None deletes the key."""
+    with conn:
+        if value is None:
+            conn.execute("DELETE FROM setting WHERE key = ?", (key,))
+        else:
+            conn.execute(
+                "INSERT INTO setting(key, value) VALUES(?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, value),
+            )
+
+
+def remove_cards(conn: sqlite3.Connection, card_ids: Sequence[str]) -> int:
+    """Delete cards (and, by cascade, their schedule and reviews); return
+    how many existed. Used when a dialect change stops serving a card."""
+    if not card_ids:
+        return 0
+    with conn:
+        n = 0
+        for card_id in card_ids:
+            n += conn.execute("DELETE FROM card WHERE card_id = ?", (card_id,)).rowcount
+    return n
+
+
+def goal_horizon(conn: sqlite3.Connection) -> datetime | None:
+    """The goal date as a UTC midnight datetime, or None when none is set.
+
+    A malformed stored value is treated as no goal rather than raised: the
+    worst outcome is unclamped scheduling, never a session that won't start.
+    """
+    raw = get_setting(conn, SETTING_GOAL_DATE)
+    if not raw:
+        return None
+    try:
+        d = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+
+
+def get_dialect(conn: sqlite3.Connection) -> str:
+    value = get_setting(conn, SETTING_DIALECT, DEFAULT_DIALECT)
+    return value if value in DIALECTS else DEFAULT_DIALECT

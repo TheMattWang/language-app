@@ -18,3 +18,5 @@ CREATE TABLE IF NOT EXISTS review(
   interval_before REAL, interval_after REAL);
 CREATE INDEX IF NOT EXISTS idx_sched_due ON sched(due_at);
 CREATE INDEX IF NOT EXISTS idx_review_card ON review(card_id, reviewed_at);
+CREATE TABLE IF NOT EXISTS setting(
+  key TEXT PRIMARY KEY, value TEXT NOT NULL);

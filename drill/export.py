@@ -11,14 +11,11 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import datetime
 
 from drill import cloze, store
 
 __all__ = ["build_markdown"]
-
-# 2026-10-03: the flight date this whole tool exists for.
-TRAVEL_DATE = date(2026, 10, 3)
 
 _MIN_TAG_ATTEMPTS = 3  # same floor `cmd_weak` uses
 _MAX_TAGS_SHOWN = 10
@@ -126,10 +123,6 @@ def _fmt_generated(now: datetime) -> str:
     return now.strftime("%Y-%m-%d")
 
 
-def _days_until_flight(now: datetime) -> int:
-    return (TRAVEL_DATE - now.date()).days
-
-
 # Only the characters that change *inline* rendering. Escaping the full
 # CommonMark set would litter ordinary Spanish sentences with backslashes
 # before every period and hyphen, which is worse than the problem.
@@ -156,17 +149,19 @@ def build_markdown(
 ) -> str:
     lines: list[str] = []
 
-    days_left = _days_until_flight(now)
-    if days_left > 0:
-        countdown = f"{days_left} día(s) para el vuelo (2026-10-03)"
-    elif days_left == 0:
-        countdown = "¡El vuelo es hoy! (2026-10-03)"
-    else:
-        countdown = f"vuelo hace {-days_left} día(s) (2026-10-03)"
+    generated = f"Generado: {_fmt_generated(now)}"
+    goal = store.goal_horizon(conn)
+    if goal is not None:
+        goal_day = goal.date()
+        days_left = (goal_day - now.date()).days
+        if days_left > 0:
+            generated += f" -- faltan {days_left} día(s) para tu meta ({goal_day})"
+        elif days_left == 0:
+            generated += f" -- ¡tu meta es hoy! ({goal_day})"
 
     lines.append("# Mis fallos — repaso de español")
     lines.append("")
-    lines.append(f"Generado: {_fmt_generated(now)} -- {countdown}")
+    lines.append(generated)
     if deck:
         lines.append(f"Mazo: `{deck}`")
     lines.append("")

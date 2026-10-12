@@ -232,7 +232,9 @@ class DrillApp:
         now = _now()
         per_day = self.new_per_day
         if per_day is None:
-            per_day = store.suggested_new_per_day(self.conn, now, deck=self.deck)
+            per_day = store.suggested_new_per_day(
+                self.conn, now, horizon=store.goal_horizon(self.conn), deck=self.deck
+            )
         q = store.daily_queue(
             self.conn, now, deck=self.deck, new_per_day=per_day,
             max_cards=self.limit,
@@ -254,7 +256,7 @@ class DrillApp:
             self.lbl_prompt.config(text="No hay tarjetas")
             self.lbl_verdict.config(
                 text="Importa una baraja primero:\n"
-                "python3 -m drill import data/peninsular_contrast.jsonl",
+                "python3 -m drill import data/es/peninsular_contrast.jsonl",
                 fg=MUTED,
             )
         else:
@@ -371,6 +373,7 @@ class DrillApp:
             ),
             sched_grade,
             _now(),
+            horizon=store.goal_horizon(self.conn),
         )
         store.save_sched(self.conn, store.SchedRow(card_id=card.card_id, **nxt.__dict__))
         store.record_review(

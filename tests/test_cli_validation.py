@@ -246,7 +246,7 @@ def test_stats_accuracy_real_percentage_after_reviews(tmp_path, capsys):
 
 def test_bootstrap_imports_card_decks_skips_scenarios_and_bad_schema(tmp_path, monkeypatch, capsys):
     pkg_root = tmp_path / "pkg"
-    data_dir = pkg_root / "data"
+    data_dir = pkg_root / "data" / "es"
     data_dir.mkdir(parents=True)
 
     _card_deck_file(data_dir, "valid_deck", n=3)
@@ -304,7 +304,7 @@ def test_bootstrap_skipped_when_db_already_has_cards(tmp_path, monkeypatch, caps
     _seed_due_cards(tmp_path, db_path, n=1)
 
     pkg_root = tmp_path / "pkg2"
-    data_dir = pkg_root / "data"
+    data_dir = pkg_root / "data" / "es"
     data_dir.mkdir(parents=True)
     _card_deck_file(data_dir, "other_deck", n=5)
     monkeypatch.setattr(cli, "__file__", str(pkg_root / "drill" / "cli.py"))

@@ -16,7 +16,7 @@ import pytest
 from drill.grader import DEFAULT_REJECT_REASON, REJECT_REASONS, grade, is_reason_tag
 from drill.normalize import fold_accents, normalize
 
-DATA = Path(__file__).resolve().parent.parent / "data"
+DATA = Path(__file__).resolve().parent.parent / "data" / "es"
 # scenarios.jsonl is a different schema (multi-turn conversations, not
 # single cards) -- it's validated separately in tests/test_scenario.py.
 DECKS = sorted(p for p in DATA.glob("*.jsonl") if p.name != "scenarios.jsonl")
