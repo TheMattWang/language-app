@@ -13,6 +13,7 @@ dependencies = []
 [project.optional-dependencies]
 dev = ["pytest"]
 mlx = ["mlx-lm"]
+interp = ["mlx-lm", "numpy", "matplotlib"]
 
 [project.scripts]
 drill = "drill.cli:main"
