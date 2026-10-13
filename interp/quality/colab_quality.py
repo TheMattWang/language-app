@@ -41,6 +41,7 @@ LOG = open(OUT / "log.txt", "a", buffering=1)
 MODELS = sys.argv[1:] or ["Qwen/Qwen3-4B-Instruct-2507", "unsloth/gemma-3-4b-it"]
 SEED, BOOT = 0, 1000
 N_HUB = 300  # NTREX sentences used to locate each model's hub; corruptions use the rest
+MAX_PAIRS = 400  # per corruption type: keeps one model well inside a Colab session
 
 
 def log(*a):
@@ -166,7 +167,7 @@ def encode(model, tok, texts, layers, bs=16, skip_first=1):
     pooled, meanlp, minlp = [], [], []
     for b in range(0, len(texts), bs):
         batch = texts[b:b + bs]
-        enc = tok(batch, return_tensors="pt", padding=True).to(model.device)
+        enc = tok(batch, return_tensors="pt", padding=True, truncation=True, max_length=128).to(model.device)
         out = model(**enc, output_hidden_states=True)
         mask = enc["attention_mask"].clone()
         mask[:, :skip_first] = 0
@@ -267,7 +268,11 @@ def run(model_id, data):
     ydv = np.array([l for _, l in data["dev"]])
 
     # 1. EsCoLA: absolute judgement
-    res = {"model": model_id, "n_layers": n_layers}
+    res = {"model": model_id, "n_layers": n_layers, "complete": False}
+    path = OUT / f"{model_id.replace('/', '__')}.json"
+
+    def save():
+        path.write_text(json.dumps(res, ensure_ascii=False, indent=1))
     rng = np.random.default_rng(SEED)
     res["escola"] = {
         "n_dev": len(ydv),
@@ -284,6 +289,7 @@ def run(model_id, data):
     res["escola"]["probe_curve"] = curve
     res["escola"]["probe"] = {"layer": best, "auc": curve[best], "ci": boot(lambda i: auc(pdv[i], ydv[i]), len(ydv), rng),
                               "note": "layer chosen on this same dev set, so slightly optimistic"}
+    save()
     log(f"  escola: surprisal {res['escola']['surprisal_mean']['auc']:.3f}, probe {curve[best]:.3f} @ {best}")
 
     # 2. locate this model's hub on held-aside sentences
@@ -320,10 +326,12 @@ def run(model_id, data):
             w = pairwise(c, b)
             row[k] = {"acc": float(w.mean()), "ci": boot(lambda i: float(w[i].mean()), len(w), rng)}
         res["pairs"][name] = row
+        save()
         log(f"  {name:<12} n={len(items):<4} " + "  ".join(f"{k} {row[k]['acc']:.2f}" for k in sig))
 
     res["seconds"] = time.time() - t0
-    (OUT / f"{model_id.replace('/', '__')}.json").write_text(json.dumps(res, ensure_ascii=False, indent=1))
+    res["complete"] = True
+    save()
     del model
     torch.cuda.empty_cache()
 
@@ -338,6 +346,7 @@ def main():
             bad = fn(es[i], rng)
             if bad and bad != es[i]:
                 pairs[n].append((i, bad))
+    pairs = {n: rng.sample(v, min(len(v), MAX_PAIRS)) for n, v in pairs.items()}
     data = {"train": escola("Train"), "dev": escola("Dev"), "es": es, "en": en,
             "hub_en": en[:N_HUB], "hub_es": es[:N_HUB], "pairs": pairs}
     log(f"data: escola train {len(data['train'])}, dev {len(data['dev'])}; pairs " +
