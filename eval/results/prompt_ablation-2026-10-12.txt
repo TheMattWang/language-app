@@ -1,0 +1,11 @@
+qwen2.5:3b                   old probe prompt   vos   8%  neutral  72%  vos|addr  27%
+qwen2.5:3b                   new, no form list  vos   8%  neutral  78%  vos|addr  33%
+qwen2.5:3b                   new, with forms    vos  80%  neutral  18%  vos|addr  97%
+gemma3:4b                    old probe prompt   vos  55%  neutral  35%  vos|addr  85%
+gemma3:4b                    new, no form list  vos  70%  neutral  22%  vos|addr  90%
+gemma3:4b                    new, with forms    vos 100%  neutral   0%  vos|addr 100%
+qwen3:4b-instruct-2507-q8_0  old probe prompt   vos  92%  neutral   5%  vos|addr  97%
+qwen3:4b-instruct-2507-q8_0  new, no form list  vos  85%  neutral  12%  vos|addr  97%
+qwen3:4b-instruct-2507-q8_0  new, with forms    vos 100%  neutral   0%  vos|addr 100%
+
+[exited with code 0]
