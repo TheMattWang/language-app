@@ -140,11 +140,28 @@ def _ollama_chat(
                 f"Ollama doesn't have {model}. Run:  ollama pull {model}"
             ) from exc
         raise LLMUnavailable(f"Ollama returned HTTP {exc.code} for {model}.") from exc
-    except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+    except TimeoutError as exc:
+        raise LLMUnavailable(_slow(model, timeout)) from exc
+    except urllib.error.URLError as exc:
+        if isinstance(exc.reason, TimeoutError):
+            raise LLMUnavailable(_slow(model, timeout)) from exc
+        raise LLMUnavailable(
+            "Can't reach Ollama. Install it from https://ollama.com and make sure it's running."
+        ) from exc
+    except ConnectionError as exc:
         raise LLMUnavailable(
             "Can't reach Ollama. Install it from https://ollama.com and make sure it's running."
         ) from exc
     return data.get("message", {}).get("content", "")
+
+
+def _slow(model: str, timeout: float) -> str:
+    # Ollama answered the connection but not the request in time: it's
+    # running, so "install Ollama" would be the wrong advice.
+    return (
+        f"Ollama is running but {model} didn't answer within {timeout:.0f}s. "
+        "The machine may be busy, or the model too large for it."
+    )
 
 
 # --- MLX -----------------------------------------------------------------------
