@@ -104,10 +104,17 @@ def main():
         return {"loss": loss, "judge": judge}
 
     t0 = time.time()
-    res = {"model": model_id, "n_layers": len(layers), "baseline": measure(), "dropped": {}}
-    cq.log(f"  baseline {res['baseline']}  ({time.time() - t0:.0f}s)")
+    if path.exists():  # resume: colab_run.sh uploads the partial result from a dead session
+        res = json.loads(path.read_text())
+        res["dropped"] = {int(k): v for k, v in res["dropped"].items()}
+        cq.log(f"  resuming: {len(res['dropped'])} layers already done")
+    else:
+        res = {"model": model_id, "n_layers": len(layers), "baseline": measure(), "dropped": {}}
+        cq.log(f"  baseline {res['baseline']}  ({time.time() - t0:.0f}s)")
     skip = Skip()
     for i, layer in enumerate(layers):
+        if i in res["dropped"]:
+            continue
         skip.on(layer)
         try:
             m = measure()

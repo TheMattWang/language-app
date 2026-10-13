@@ -27,7 +27,8 @@ Updated 2026-10-13. Branch: `product-foundation` (no git remote; nothing pushed)
 - **Layer-drop sweep** (`interp/quality/colab_layer_sweep.py`, run via
   `colab_run.sh Qwen/Qwen3-4B-Instruct-2507 L4 colab_layer_sweep.py`): skip each of Qwen3-4B's 36 layers,
   measure Δloss on es/en/fr/de NTREX and surprisal error-detection on es pairs. Tests whether Spanish
-  lives at the edge layers (premise for Bandarkar-style layer swapping). In flight.
+  lives at the edge layers (premise for Bandarkar-style layer swapping). Run 1 died at ~17:00 after
+  layers 0–25 (partial JSON in colab_out/); sweep now resumes from that JSON. Resuming layers 26–35.
 
 ## Open decisions for Matt
 - Gemma 3 4B vs Qwen3-4B-2507 as the conversation model (decide on the Colab quality results).
