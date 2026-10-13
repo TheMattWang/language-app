@@ -29,6 +29,9 @@ Updated 2026-10-13. Branch: `product-foundation` (no git remote; nothing pushed)
   measure Δloss on es/en/fr/de NTREX and surprisal error-detection on es pairs. Tests whether Spanish
   lives at the edge layers (premise for Bandarkar-style layer swapping). Run 1 died at ~17:00 after
   layers 0–25 (partial JSON in colab_out/); sweep now resumes from that JSON. Resuming layers 26–35.
+  Partial read (0–25): layers 0 and 6 are catastrophic for every language; layers 1–5 hurt es/fr more than
+  en (non-English/Romance, not Spanish-specific); layers 7–21 each cost <0.1 nats (pruning candidates:
+  16, 17, 20 ≈ 0); 22–25 rise again with es≈fr>en. Error detection barely moves except at layers 0/6.
 
 ## Open decisions for Matt
 - Gemma 3 4B vs Qwen3-4B-2507 as the conversation model (decide on the Colab quality results).
