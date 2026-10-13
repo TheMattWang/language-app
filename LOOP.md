@@ -24,6 +24,11 @@ Updated 2026-10-13. Branch: `product-foundation` (no git remote; nothing pushed)
   (fixed 14c2bf3: fp32). Run 3 **done**. Comparison in interp/quality/NOTES.md: Qwen's surprisal is more sensitive to broken
   Spanish than Gemma's (non-overlapping CIs on gender, negation); Gemma's hub is undefined (flat retrieval).
 
+- **Layer-drop sweep** (`interp/quality/colab_layer_sweep.py`, run via
+  `colab_run.sh Qwen/Qwen3-4B-Instruct-2507 L4 colab_layer_sweep.py`): skip each of Qwen3-4B's 36 layers,
+  measure Δloss on es/en/fr/de NTREX and surprisal error-detection on es pairs. Tests whether Spanish
+  lives at the edge layers (premise for Bandarkar-style layer swapping). In flight.
+
 ## Open decisions for Matt
 - Gemma 3 4B vs Qwen3-4B-2507 as the conversation model (decide on the Colab quality results).
 - qwen2.5:3b is research-licensed: must not ship as `drill/llm.py`'s default.
