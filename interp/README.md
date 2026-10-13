@@ -8,7 +8,7 @@ the part that carries the weight. Results feed `research/` and `drill/`.
 | Dir | Question | Status |
 |---|---|---|
 | `language_geometry/` | Where does the model keep *which language* vs *what it means*? Is Spain vs Latin America a feature? | probes run on Qwen3-4B, causal half open |
-| `quality/` | Does the model know when its Spanish is wrong? Surprisal vs a linear probe vs cross-lingual alignment | running |
+| `quality/` | Does the model know when its Spanish is wrong? Surprisal vs a linear probe vs cross-lingual alignment | run on Qwen3-4B: surprisal ranks form errors, the hub check catches meaning errors |
 
 Setup (Apple Silicon; MLX):
 
