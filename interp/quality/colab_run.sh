@@ -19,7 +19,9 @@ if ! colab new -s "$SESSION" --gpu "$GPU" 2>&1 | q | tee /dev/stderr | grep -q "
   echo "NO $GPU AVAILABLE (session not created)"; exit 2
 fi
 colab upload -s "$SESSION" "$HERE/colab_quality.py" /content/colab_quality.py 2>&1 | q
-# resume: hand a dead session's partial result to the new one
+# resume: hand a dead session's partial result to the new one (the dir must exist first,
+# or the upload 500s and the run silently restarts from scratch)
+printf 'import os\nos.makedirs("/content/out", exist_ok=True)\n' | colab exec -s "$SESSION" >/dev/null 2>&1
 [ -f "$OUT/$FILE" ] && colab upload -s "$SESSION" "$OUT/$FILE" "/content/out/$FILE" 2>&1 | q
 [ "$SCRIPT" != colab_quality.py ] && colab upload -s "$SESSION" "$HERE/$SCRIPT" "/content/$SCRIPT" 2>&1 | q
 printf 'import subprocess\nsubprocess.Popen("cd /content && nohup python /content/%s %s > /content/run.out 2>&1 &", shell=True)\n' "$SCRIPT" "$MODEL" \

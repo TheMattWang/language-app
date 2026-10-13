@@ -1,5 +1,5 @@
 [sweep Qwen/Qwen3-4B-Instruct-2507] 36 layers, torch.bfloat16
-  baseline {'loss': {'es': 3.2588396072387695, 'en': 3.8438875675201416, 'fr': 3.093297004699707, 'de': 3.136005163192749}, 'judge': {'gender': 0.93, 'verb_number': 0.91, 'negation': 0.875}}  (44s)
+  baseline {'loss': {'es': 3.2588396072387695, 'en': 3.8438875675201416, 'fr': 3.093297004699707, 'de': 3.136005163192749}, 'judge': {'gender': 0.93, 'verb_number': 0.91, 'negation': 0.875}}  (43s)
   drop  0: dloss es +8.242 en +5.506 fr +8.466 de +8.716  gender 0.50 verb_number 0.52 negation 0.40
   drop  1: dloss es +0.690 en +0.327 fr +0.804 de +0.884  gender 0.89 verb_number 0.84 negation 0.79
   drop  2: dloss es +0.079 en +0.024 fr +0.118 de +0.133  gender 0.96 verb_number 0.91 negation 0.82
