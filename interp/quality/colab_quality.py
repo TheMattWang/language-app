@@ -174,7 +174,8 @@ def encode(model, tok, texts, layers, bs=16, skip_first=1):
         m = mask.unsqueeze(-1).to(out.hidden_states[0].dtype)
         # hidden_states[0] is the embedding; [i + 1] is the residual after block i
         hs = torch.stack([out.hidden_states[i + 1] for i in layers], 1)  # [B, L, T, d]
-        pooled.append(((hs * m.unsqueeze(1)).sum(2) / m.sum(1).unsqueeze(1)).half().cpu())
+        # fp32, not fp16: Gemma has massive activations (>65504) that overflow fp16 to inf
+        pooled.append(((hs.float() * m.unsqueeze(1).float()).sum(2) / m.sum(1).unsqueeze(1).float()).cpu())
         logp = torch.log_softmax(out.logits[:, :-1].float(), -1)
         tgt = enc["input_ids"][:, 1:]
         tlp = logp.gather(-1, tgt.unsqueeze(-1))[..., 0]
@@ -281,10 +282,15 @@ def run(model_id, data):
     }
     probes, curve = [], []
     for L in layers:
-        f = fit_probe(tr[:, L], ytr)
-        probes.append(f)
-        curve.append(auc(f(dv[:, L]), ydv))
-    best = int(np.argmax(curve))
+        try:
+            f = fit_probe(tr[:, L], ytr)
+            probes.append(f)
+            curve.append(auc(f(dv[:, L]), ydv))
+        except Exception as e:  # one ill-conditioned layer shouldn't sink the model
+            log(f"  probe layer {L} failed: {type(e).__name__}")
+            probes.append(None)
+            curve.append(float("nan"))
+    best = int(np.nanargmax(curve))
     pdv = probes[best](dv[:, best])
     res["escola"]["probe_curve"] = curve
     res["escola"]["probe"] = {"layer": best, "auc": curve[best], "ci": boot(lambda i: auc(pdv[i], ydv[i]), len(ydv), rng),
