@@ -9,7 +9,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"; OUT="$HERE/colab_out"; mkdir -p "$OUT"
 FILE="$(echo "$MODEL" | sed 's|/|__|').json"
 q() { grep -v "new version\|update\|silence"; }
 
-colab new -s "$SESSION" --gpu "$GPU" 2>&1 | q
+if ! colab new -s "$SESSION" --gpu "$GPU" 2>&1 | q | tee /dev/stderr | grep -q "READY"; then
+  echo "NO $GPU AVAILABLE (session not created)"; exit 2
+fi
 colab upload -s "$SESSION" "$HERE/colab_quality.py" /content/colab_quality.py 2>&1 | q
 printf 'import subprocess\nsubprocess.Popen("nohup python /content/colab_quality.py %s > /content/run.out 2>&1 &", shell=True)\n' "$MODEL" \
   | colab exec -s "$SESSION" 2>&1 | q
