@@ -8,6 +8,9 @@ SESSION="q-$(echo "$MODEL" | tr '/.' '--' | tr 'A-Z' 'a-z' | cut -c1-30)"
 HERE="$(cd "$(dirname "$0")" && pwd)"; OUT="$HERE/colab_out"; mkdir -p "$OUT"
 FILE="$(echo "$MODEL" | sed 's|/|__|').json"
 q() { grep -v "new version\|update\|silence"; }
+# A dead session can leave `colab download` hanging forever; cap each call.
+dl() { colab download -s "$SESSION" "$1" "$2" >/dev/null 2>&1 & p=$!
+       ( sleep 90; kill $p 2>/dev/null ) & w=$!; wait $p 2>/dev/null; kill $w 2>/dev/null; }
 
 if ! colab new -s "$SESSION" --gpu "$GPU" 2>&1 | q | tee /dev/stderr | grep -q "READY"; then
   echo "NO $GPU AVAILABLE (session not created)"; exit 2
@@ -18,8 +21,8 @@ printf 'import subprocess\nsubprocess.Popen("nohup python /content/colab_quality
 
 for i in $(seq 1 60); do
   sleep 120
-  colab download -s "$SESSION" "/content/out/$FILE" "$OUT/$FILE" >/dev/null 2>&1
-  colab download -s "$SESSION" /content/out/log.txt "$OUT/${FILE%.json}.log" >/dev/null 2>&1
+  dl "/content/out/$FILE" "$OUT/$FILE"
+  dl /content/out/log.txt "$OUT/${FILE%.json}.log"
   tail -2 "$OUT/${FILE%.json}.log" 2>/dev/null
   if grep -qE "DONE|FAILED|NaN act" "$OUT/${FILE%.json}.log" 2>/dev/null; then break; fi
   if ! colab status -s "$SESSION" >/dev/null 2>&1; then echo "SESSION LOST"; exit 1; fi

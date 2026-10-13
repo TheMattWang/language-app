@@ -1,0 +1,38 @@
+data: escola train 8454, dev 1053; pairs gender 400, verb_number 400, nonword 400, negation 400, number 365, entity 120, antonym 380
+[Qwen/Qwen3-4B-Instruct-2507] dtype torch.bfloat16, gpu NVIDIA L4
+[Qwen/Qwen3-4B-Instruct-2507] loaded, 36 layers, 30s
+  escola train: 8454 in 50s
+  escola dev: 1053 in 6s
+  escola: surprisal 0.647, probe 0.728 @ 22
+  hub en: 300 in 3s
+  hub es: 300 in 5s
+  hub layers 6-30 (retrieval peak 0.99)
+  gender en: 400 in 5s
+  gender clean: 400 in 7s
+  gender bad: 400 in 7s
+  gender       n=400  length 0.53  surprisal_mean 0.94  surprisal_min 0.59  probe 0.93  hub 0.71
+  verb_number en: 400 in 5s
+  verb_number clean: 400 in 7s
+  verb_number bad: 400 in 7s
+  verb_number  n=400  length 0.51  surprisal_mean 0.92  surprisal_min 0.55  probe 0.90  hub 0.84
+  nonword en: 400 in 5s
+  nonword clean: 400 in 7s
+  nonword bad: 400 in 7s
+  nonword      n=400  length 0.50  surprisal_mean 0.99  surprisal_min 0.82  probe 0.99  hub 0.93
+  negation en: 400 in 5s
+  negation clean: 400 in 7s
+  negation bad: 400 in 7s
+  negation     n=400  length 0.57  surprisal_mean 0.90  surprisal_min 0.51  probe 0.88  hub 0.95
+  number en: 365 in 5s
+  number clean: 365 in 7s
+  number bad: 365 in 7s
+  number       n=365  length 0.50  surprisal_mean 0.83  surprisal_min 0.53  probe 0.69  hub 0.92
+  entity en: 120 in 2s
+  entity clean: 120 in 2s
+  entity bad: 120 in 2s
+  entity       n=120  length 0.59  surprisal_mean 0.86  surprisal_min 0.54  probe 0.78  hub 0.93
+  antonym en: 380 in 5s
+  antonym clean: 380 in 7s
+  antonym bad: 380 in 7s
+  antonym      n=380  length 0.51  surprisal_mean 0.89  surprisal_min 0.52  probe 0.83  hub 0.93
+DONE

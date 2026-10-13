@@ -16,14 +16,11 @@ Updated 2026-10-13. Branch: `product-foundation` (no git remote; nothing pushed)
   clauses was mostly a length effect — length-ratio baseline alone scored 0.89).
 
 ## In flight
-- `interp/quality/colab_quality.py`: full-scale rerun with length-preserving meaning corruptions
-  (negation/number/entity/antonym), a length baseline column, bootstrap CIs, two models.
-  First T4 run died at the Colab session ceiling before saving anything. Fixed (92e1cca):
-  `interp/quality/colab_run.sh MODEL [GPU]` runs one model per session, saves after every stage,
-  pulls partials to `interp/quality/colab_out/` each poll, and stops the session when done.
-  **Running now (retry):** Qwen/Qwen3-4B-Instruct-2507 on T4 (first retry got `Service Unavailable` assigning a T4,
-  then a local DNS blip; runner now exits 2 when no GPU is assigned — T4 stayed unavailable, so Matt chose L4 on 2026-10-13). **Running now on L4:** Qwen then Gemma, sequentially. Then: unsloth/gemma-3-4b-it (fp16 on T4 may NaN;
-  the script skips it if so — then rerun on L4, which has bf16).
+- Colab quality rerun (`interp/quality/colab_run.sh MODEL L4`; results in `interp/quality/colab_out/`).
+  **Qwen3-4B-2507 done** (bf16, L4): length baseline at chance on the new fluent meaning corruptions;
+  hub check best on meaning (0.92–0.95), surprisal ≈ probe on form (0.90–0.99); EsCoLA probe 0.728
+  [.69,.76] beats surprisal 0.647. **Gemma 3 4B lost** — its session died and a download hung (runner
+  now caps downloads at 90s). Rerun Gemma next.
 
 ## Open decisions for Matt
 - Gemma 3 4B vs Qwen3-4B-2507 as the conversation model (decide on the Colab quality results).

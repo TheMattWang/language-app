@@ -1,0 +1,447 @@
+{
+ "model": "Qwen/Qwen3-4B-Instruct-2507",
+ "n_layers": 36,
+ "complete": true,
+ "escola": {
+  "n_dev": 1053,
+  "surprisal_mean": {
+   "auc": 0.6473895232284494,
+   "ci": [
+    0.611236109441286,
+    0.6842914156813168
+   ]
+  },
+  "surprisal_min": {
+   "auc": 0.591007147215201,
+   "ci": [
+    0.5528469360918734,
+    0.6288606679622181
+   ]
+  },
+  "probe_curve": [
+   0.5695851128737035,
+   0.5759696679159766,
+   0.5828510415758738,
+   0.588483831604637,
+   0.6086725355181731,
+   0.6258084197681513,
+   0.6227011243789767,
+   0.6308027542926872,
+   0.674025974025974,
+   0.6976945872919027,
+   0.6927307591737122,
+   0.7054432145036171,
+   0.7122069205961823,
+   0.7107861936720997,
+   0.7114660507277957,
+   0.7185740434062582,
+   0.7114268282053517,
+   0.7116621633400156,
+   0.7189270461082542,
+   0.7282837967401726,
+   0.7254554170661554,
+   0.7266408088555739,
+   0.7283273773206659,
+   0.7197942996600715,
+   0.6997951712716813,
+   0.6944565501612482,
+   0.699856184084372,
+   0.6840233591911444,
+   0.6920203957116708,
+   0.6916107382550336,
+   0.6920029634794735,
+   0.6860019175455417,
+   0.6786455155582672,
+   0.6724352828379674,
+   0.6823367907260525,
+   0.6829425607949098
+  ],
+  "probe": {
+   "layer": 22,
+   "auc": 0.7283273773206659,
+   "ci": [
+    0.6926296465462722,
+    0.762423945789487
+   ],
+   "note": "layer chosen on this same dev set, so slightly optimistic"
+  }
+ },
+ "hub": {
+  "retrieval_curve": [
+   0.9066666666666666,
+   0.48333333333333334,
+   0.56,
+   0.6833333333333333,
+   0.7666666666666667,
+   0.88,
+   0.9866666666666667,
+   0.9933333333333333,
+   0.9933333333333333,
+   0.99,
+   0.99,
+   0.99,
+   0.9933333333333333,
+   0.9933333333333333,
+   0.9933333333333333,
+   0.99,
+   0.99,
+   0.9866666666666667,
+   0.9866666666666667,
+   0.9866666666666667,
+   0.9866666666666667,
+   0.9866666666666667,
+   0.9866666666666667,
+   0.9866666666666667,
+   0.98,
+   0.98,
+   0.98,
+   0.9766666666666667,
+   0.97,
+   0.9633333333333334,
+   0.95,
+   0.9333333333333333,
+   0.92,
+   0.91,
+   0.91,
+   0.7333333333333333
+  ],
+  "layers": [
+   6,
+   7,
+   8,
+   9,
+   10,
+   11,
+   12,
+   13,
+   14,
+   15,
+   16,
+   17,
+   18,
+   19,
+   20,
+   21,
+   22,
+   23,
+   24,
+   25,
+   26,
+   27,
+   28,
+   29,
+   30
+  ]
+ },
+ "pairs": {
+  "gender": {
+   "n": 400,
+   "family": "form",
+   "example": {
+    "en": "US star Phil Mickelson, who struggled most of the tournament, plunked his tee-shot into the water at the par-3 16th hole, conceding his match to Francesco Molinari.",
+    "clean": "La estrella norteamericana Phil Mickelson, que tuvo que luchar durante la mayor parte del torneo, lanzó su punto de salida al agua en el hoyo 16 par 3, admitiendo así su derrota ante Francesco Molinari.",
+    "bad": "El estrella norteamericana Phil Mickelson, que tuvo que luchar durante la mayor parte del torneo, lanzó su punto de salida al agua en el hoyo 16 par 3, admitiendo así su derrota ante Francesco Molinari."
+   },
+   "length": {
+    "acc": 0.52625,
+    "ci": [
+     0.5025,
+     0.55125
+    ]
+   },
+   "surprisal_mean": {
+    "acc": 0.935,
+    "ci": [
+     0.9075,
+     0.9575
+    ]
+   },
+   "surprisal_min": {
+    "acc": 0.5875,
+    "ci": [
+     0.54375,
+     0.62625
+    ]
+   },
+   "probe": {
+    "acc": 0.925,
+    "ci": [
+     0.8975,
+     0.95
+    ]
+   },
+   "hub": {
+    "acc": 0.7075,
+    "ci": [
+     0.665,
+     0.7525
+    ]
+   }
+  },
+  "verb_number": {
+   "n": 400,
+   "family": "form",
+   "example": {
+    "en": "In what was a busy opening period, Sullivan brought the home side back into the game on 13:10 before Matt Marquardt became provider for Cownie's equalizer on 15:16.",
+    "clean": "En lo que se puede considerar un período inicial muy animado, Sullivan volvió a poner al equipo local con ganas de jugar en el minuto 13:10 antes de que Matt Marquardt asistiera a Cownie para igualar el partido en el minuto 15:16.",
+    "bad": "En lo que se pueden considerar un período inicial muy animado, Sullivan volvió a poner al equipo local con ganas de jugar en el minuto 13:10 antes de que Matt Marquardt asistiera a Cownie para igualar el partido en el minuto 15:16."
+   },
+   "length": {
+    "acc": 0.5075,
+    "ci": [
+     0.4575,
+     0.5575
+    ]
+   },
+   "surprisal_mean": {
+    "acc": 0.915,
+    "ci": [
+     0.8875,
+     0.9425
+    ]
+   },
+   "surprisal_min": {
+    "acc": 0.545,
+    "ci": [
+     0.51,
+     0.58625
+    ]
+   },
+   "probe": {
+    "acc": 0.8975,
+    "ci": [
+     0.865,
+     0.925
+    ]
+   },
+   "hub": {
+    "acc": 0.8375,
+    "ci": [
+     0.8025,
+     0.8725
+    ]
+   }
+  },
+  "nonword": {
+   "n": 400,
+   "family": "form",
+   "example": {
+    "en": "The only players with more points than Spieth and Thomas over the past two days are Francesco Molinari and Tommy Fleetwood, the indisputable story of the Ryder Cup.",
+    "clean": "Los únicos jugadores con más puntos que Spieth y Thomas en los últimos dos días son Francesco Molinari y Tommy Fleetwood, la historia indiscutible de la Ryder Cup.",
+    "bad": "Los únicos jugadores con más puntos que Spieth y Thomas en los últimos dos días son Francesco Molinari y Tommy Fleetwood, la hisotria indiscutible de la Ryder Cup."
+   },
+   "length": {
+    "acc": 0.5,
+    "ci": [
+     0.5,
+     0.5
+    ]
+   },
+   "surprisal_mean": {
+    "acc": 0.9875,
+    "ci": [
+     0.975,
+     0.9975
+    ]
+   },
+   "surprisal_min": {
+    "acc": 0.8175,
+    "ci": [
+     0.7825,
+     0.85125
+    ]
+   },
+   "probe": {
+    "acc": 0.9875,
+    "ci": [
+     0.975,
+     0.9975
+    ]
+   },
+   "hub": {
+    "acc": 0.93,
+    "ci": [
+     0.905,
+     0.9525
+    ]
+   }
+  },
+  "negation": {
+   "n": 400,
+   "family": "meaning",
+   "example": {
+    "en": "Peter Martin, of business consultancy CGA, which compiled the figures, said: \"Continued sunshine and England's longer than expected participation in the World Cup meant July followed a similar pattern to the previous month of June, when pubs were up 2.8 per cent, except that restaurants were hit even harder.",
+    "clean": "Peter Martin, de la consultoría para empresas CGA, que se encargó de recopilar las cifras, comentó: \"El calor de estos días y el hecho de que Inglaterra siga en el Mundial todavía han hecho que en julio se mantenga el patrón del mes anterior de junio, en el que los pubs incrementaron un 2,8 % sus ganancias, si bien los restaurantes han caído incluso algo más.",
+    "bad": "Peter Martin, de la consultoría para empresas CGA, que se encargó de recopilar las cifras, comentó: \"El calor de estos días y el hecho de que Inglaterra siga en el Mundial todavía no han hecho que en julio se mantenga el patrón del mes anterior de junio, en el que los pubs incrementaron un 2,8 % sus ganancias, si bien los restaurantes han caído incluso algo más."
+   },
+   "length": {
+    "acc": 0.5675,
+    "ci": [
+     0.52,
+     0.615
+    ]
+   },
+   "surprisal_mean": {
+    "acc": 0.9,
+    "ci": [
+     0.87,
+     0.93
+    ]
+   },
+   "surprisal_min": {
+    "acc": 0.505,
+    "ci": [
+     0.46125,
+     0.5475
+    ]
+   },
+   "probe": {
+    "acc": 0.8775,
+    "ci": [
+     0.845,
+     0.91
+    ]
+   },
+   "hub": {
+    "acc": 0.95,
+    "ci": [
+     0.9275,
+     0.9725
+    ]
+   }
+  },
+  "number": {
+   "n": 365,
+   "family": "meaning",
+   "example": {
+    "en": "Of those, 70 percent said they would vote yes.",
+    "clean": "De estos, el 70 % decía que votaría a favor.",
+    "bad": "De estos, el 73 % decía que votaría a favor."
+   },
+   "length": {
+    "acc": 0.5,
+    "ci": [
+     0.5,
+     0.5
+    ]
+   },
+   "surprisal_mean": {
+    "acc": 0.8273972602739726,
+    "ci": [
+     0.7890410958904109,
+     0.8684931506849315
+    ]
+   },
+   "surprisal_min": {
+    "acc": 0.5328767123287671,
+    "ci": [
+     0.5013698630136987,
+     0.5643835616438356
+    ]
+   },
+   "probe": {
+    "acc": 0.6876712328767123,
+    "ci": [
+     0.6410958904109589,
+     0.7342465753424657
+    ]
+   },
+   "hub": {
+    "acc": 0.9205479452054794,
+    "ci": [
+     0.8904109589041096,
+     0.9452054794520548
+    ]
+   }
+  },
+  "entity": {
+   "n": 120,
+   "family": "meaning",
+   "example": {
+    "en": "\"In contrast, at the newsstand down the street here in Beijing, you will find limited dissenting voices and will not see any true reflection of the disparate opinions that the Chinese people may have on China's troubling economic trajectory, given that media is under the firm thumb of the Chinese Communist Party,\" he wrote.",
+    "clean": "\"En cambio, en el quiosco de la calle donde estamos aquí en Beijing, solo se ven unas pocas voces discrepantes y ningún reflejo real de las dispares opiniones que la gente en China puede tener sobre la preocupante trayectoria que está tomando la economía de su país, ya que los medios están controlados por la firme presión del Partido Comunista Chino\", escribió.",
+    "bad": "\"En cambio, en el quiosco de la calle donde estamos aquí en Beijing, solo se ven unas pocas voces discrepantes y ningún reflejo real de las dispares opiniones que la gente en India puede tener sobre la preocupante trayectoria que está tomando la economía de su país, ya que los medios están controlados por la firme presión del Partido Comunista Chino\", escribió."
+   },
+   "length": {
+    "acc": 0.5875,
+    "ci": [
+     0.5125,
+     0.6666666666666666
+    ]
+   },
+   "surprisal_mean": {
+    "acc": 0.8583333333333333,
+    "ci": [
+     0.7916666666666666,
+     0.9166666666666666
+    ]
+   },
+   "surprisal_min": {
+    "acc": 0.5416666666666666,
+    "ci": [
+     0.4625,
+     0.6166666666666667
+    ]
+   },
+   "probe": {
+    "acc": 0.7833333333333333,
+    "ci": [
+     0.7,
+     0.85
+    ]
+   },
+   "hub": {
+    "acc": 0.9333333333333333,
+    "ci": [
+     0.8833333333333333,
+     0.975
+    ]
+   }
+  },
+  "antonym": {
+   "n": 380,
+   "family": "meaning",
+   "example": {
+    "en": "Maybe she didn't, but that's the worst body language I've ever seen.\"",
+    "clean": "Tal vez no lo hizo, pero ese es el peor lenguaje corporal que jamás he visto”.",
+    "bad": "Tal vez no lo hizo, pero ese es el mejor lenguaje corporal que jamás he visto”."
+   },
+   "length": {
+    "acc": 0.5092105263157894,
+    "ci": [
+     0.45789473684210524,
+     0.5578947368421052
+    ]
+   },
+   "surprisal_mean": {
+    "acc": 0.8894736842105263,
+    "ci": [
+     0.8552631578947368,
+     0.9210526315789473
+    ]
+   },
+   "surprisal_min": {
+    "acc": 0.5171052631578947,
+    "ci": [
+     0.4789473684210526,
+     0.5526315789473685
+    ]
+   },
+   "probe": {
+    "acc": 0.8263157894736842,
+    "ci": [
+     0.7894736842105263,
+     0.8657894736842106
+    ]
+   },
+   "hub": {
+    "acc": 0.9342105263157895,
+    "ci": [
+     0.9105263157894737,
+     0.9578947368421052
+    ]
+   }
+  }
+ },
+ "seconds": 229.49422478675842
+}
