@@ -19,8 +19,9 @@ Updated 2026-10-13. Branch: `product-foundation` (no git remote; nothing pushed)
 - Colab quality rerun (`interp/quality/colab_run.sh MODEL L4`; results in `interp/quality/colab_out/`).
   **Qwen3-4B-2507 done** (bf16, L4): length baseline at chance on the new fluent meaning corruptions;
   hub check best on meaning (0.92–0.95), surprisal ≈ probe on form (0.90–0.99); EsCoLA probe 0.728
-  [.69,.76] beats surprisal 0.647. **Gemma 3 4B lost** — its session died and a download hung (runner
-  now caps downloads at 90s). Rerun Gemma next.
+  [.69,.76] beats surprisal 0.647. **Gemma 3 4B:** run 1 lost (session died, download hung; downloads now
+  capped at 90s); run 2 failed in the probe SVD — fp16 storage overflowed Gemma's massive activations
+  (fixed 14c2bf3: fp32). Run 3 in flight on L4.
 
 ## Open decisions for Matt
 - Gemma 3 4B vs Qwen3-4B-2507 as the conversation model (decide on the Colab quality results).
