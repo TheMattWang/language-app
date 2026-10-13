@@ -22,7 +22,7 @@ Updated 2026-10-13. Branch: `product-foundation` (no git remote; nothing pushed)
   `interp/quality/colab_run.sh MODEL [GPU]` runs one model per session, saves after every stage,
   pulls partials to `interp/quality/colab_out/` each poll, and stops the session when done.
   **Running now (retry):** Qwen/Qwen3-4B-Instruct-2507 on T4 (first retry got `Service Unavailable` assigning a T4,
-  then a local DNS blip; runner now exits 2 when no GPU is assigned — fall back to L4 if T4 stays unavailable). Then: unsloth/gemma-3-4b-it (fp16 on T4 may NaN;
+  then a local DNS blip; runner now exits 2 when no GPU is assigned — T4 stayed unavailable, so Matt chose L4 on 2026-10-13). **Running now on L4:** Qwen then Gemma, sequentially. Then: unsloth/gemma-3-4b-it (fp16 on T4 may NaN;
   the script skips it if so — then rerun on L4, which has bf16).
 
 ## Open decisions for Matt
