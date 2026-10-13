@@ -18,9 +18,11 @@ Updated 2026-10-13. Branch: `product-foundation` (no git remote; nothing pushed)
 ## In flight
 - `interp/quality/colab_quality.py`: full-scale rerun with length-preserving meaning corruptions
   (negation/number/entity/antonym), a length baseline column, bootstrap CIs, two models.
-  First T4 run (session `quality`) **died at the Colab session ceiling before saving anything.**
-  Next: make it resumable (per-stage JSON, skip finished stages) and download partials on each poll;
-  run one model per session.
+  First T4 run died at the Colab session ceiling before saving anything. Fixed (92e1cca):
+  `interp/quality/colab_run.sh MODEL [GPU]` runs one model per session, saves after every stage,
+  pulls partials to `interp/quality/colab_out/` each poll, and stops the session when done.
+  **Running now:** Qwen/Qwen3-4B-Instruct-2507 on T4. Then: unsloth/gemma-3-4b-it (fp16 on T4 may NaN;
+  the script skips it if so — then rerun on L4, which has bf16).
 
 ## Open decisions for Matt
 - Gemma 3 4B vs Qwen3-4B-2507 as the conversation model (decide on the Colab quality results).
