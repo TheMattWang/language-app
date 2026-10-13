@@ -1,0 +1,420 @@
+{
+ "model": "unsloth/gemma-3-4b-it",
+ "n_layers": 34,
+ "complete": true,
+ "escola": {
+  "n_dev": 1053,
+  "surprisal_mean": {
+   "auc": 0.6235182602632267,
+   "ci": [
+    0.5864260426560746,
+    0.6581165992319298
+   ]
+  },
+  "surprisal_min": {
+   "auc": 0.47636843022749065,
+   "ci": [
+    0.4406207366984993,
+    0.5175150353002702
+   ]
+  },
+  "probe_curve": [
+   0.5490913448967141,
+   0.5516756733199686,
+   0.5704087858450274,
+   0.5758411052035213,
+   0.5949947703303408,
+   0.6131983788024057,
+   0.6325132920770504,
+   0.6446156192800488,
+   0.675431447746884,
+   0.6964460036607688,
+   0.7015144251721432,
+   0.7092804846160551,
+   0.7199359365466748,
+   0.7166543188355269,
+   0.7015057090560446,
+   0.7042774339754205,
+   0.7092674104419071,
+   0.713215811034603,
+   0.7063170051425085,
+   0.7055238385775299,
+   0.7116512681948923,
+   0.7111326592870217,
+   0.7029918068508673,
+   0.7006951102588687,
+   0.7057330253638978,
+   0.6943410616229408,
+   0.6738974113135187,
+   0.686025886864813,
+   0.6805826723611959,
+   0.6718927046108254,
+   0.6795105900810599,
+   0.6903229321014556,
+   0.663699555478079,
+   0.6663492547720735
+  ],
+  "probe": {
+   "layer": 12,
+   "auc": 0.7199359365466748,
+   "ci": [
+    0.6844099088572096,
+    0.7547283735727432
+   ],
+   "note": "layer chosen on this same dev set, so slightly optimistic"
+  }
+ },
+ "hub": {
+  "retrieval_curve": [
+   0.8533333333333334,
+   0.88,
+   0.7633333333333333,
+   0.8166666666666667,
+   0.62,
+   0.7166666666666667,
+   0.81,
+   0.7366666666666667,
+   0.69,
+   0.6566666666666666,
+   0.7133333333333334,
+   0.6433333333333333,
+   0.5833333333333334,
+   0.6133333333333333,
+   0.66,
+   0.68,
+   0.74,
+   0.71,
+   0.7366666666666667,
+   0.7433333333333333,
+   0.75,
+   0.76,
+   0.8166666666666667,
+   0.8266666666666667,
+   0.8166666666666667,
+   0.84,
+   0.8366666666666667,
+   0.8233333333333334,
+   0.8266666666666667,
+   0.8166666666666667,
+   0.8,
+   0.8133333333333334,
+   0.7733333333333333,
+   0.9166666666666666
+  ],
+  "layers": [
+   1,
+   33
+  ]
+ },
+ "pairs": {
+  "gender": {
+   "n": 400,
+   "family": "form",
+   "example": {
+    "en": "US star Phil Mickelson, who struggled most of the tournament, plunked his tee-shot into the water at the par-3 16th hole, conceding his match to Francesco Molinari.",
+    "clean": "La estrella norteamericana Phil Mickelson, que tuvo que luchar durante la mayor parte del torneo, lanzó su punto de salida al agua en el hoyo 16 par 3, admitiendo así su derrota ante Francesco Molinari.",
+    "bad": "El estrella norteamericana Phil Mickelson, que tuvo que luchar durante la mayor parte del torneo, lanzó su punto de salida al agua en el hoyo 16 par 3, admitiendo así su derrota ante Francesco Molinari."
+   },
+   "length": {
+    "acc": 0.52625,
+    "ci": [
+     0.5025,
+     0.55125
+    ]
+   },
+   "surprisal_mean": {
+    "acc": 0.8475,
+    "ci": [
+     0.81,
+     0.8825
+    ]
+   },
+   "surprisal_min": {
+    "acc": 0.61625,
+    "ci": [
+     0.58375,
+     0.6475
+    ]
+   },
+   "probe": {
+    "acc": 0.9425,
+    "ci": [
+     0.92,
+     0.9625
+    ]
+   },
+   "hub": {
+    "acc": 0.465,
+    "ci": [
+     0.415,
+     0.5125
+    ]
+   }
+  },
+  "verb_number": {
+   "n": 400,
+   "family": "form",
+   "example": {
+    "en": "In what was a busy opening period, Sullivan brought the home side back into the game on 13:10 before Matt Marquardt became provider for Cownie's equalizer on 15:16.",
+    "clean": "En lo que se puede considerar un período inicial muy animado, Sullivan volvió a poner al equipo local con ganas de jugar en el minuto 13:10 antes de que Matt Marquardt asistiera a Cownie para igualar el partido en el minuto 15:16.",
+    "bad": "En lo que se pueden considerar un período inicial muy animado, Sullivan volvió a poner al equipo local con ganas de jugar en el minuto 13:10 antes de que Matt Marquardt asistiera a Cownie para igualar el partido en el minuto 15:16."
+   },
+   "length": {
+    "acc": 0.5075,
+    "ci": [
+     0.4575,
+     0.5575
+    ]
+   },
+   "surprisal_mean": {
+    "acc": 0.9125,
+    "ci": [
+     0.8825,
+     0.9375
+    ]
+   },
+   "surprisal_min": {
+    "acc": 0.5475,
+    "ci": [
+     0.5225,
+     0.5725
+    ]
+   },
+   "probe": {
+    "acc": 0.885,
+    "ci": [
+     0.8575,
+     0.9125
+    ]
+   },
+   "hub": {
+    "acc": 0.6075,
+    "ci": [
+     0.5575,
+     0.655
+    ]
+   }
+  },
+  "nonword": {
+   "n": 400,
+   "family": "form",
+   "example": {
+    "en": "The only players with more points than Spieth and Thomas over the past two days are Francesco Molinari and Tommy Fleetwood, the indisputable story of the Ryder Cup.",
+    "clean": "Los únicos jugadores con más puntos que Spieth y Thomas en los últimos dos días son Francesco Molinari y Tommy Fleetwood, la historia indiscutible de la Ryder Cup.",
+    "bad": "Los únicos jugadores con más puntos que Spieth y Thomas en los últimos dos días son Francesco Molinari y Tommy Fleetwood, la hisotria indiscutible de la Ryder Cup."
+   },
+   "length": {
+    "acc": 0.5,
+    "ci": [
+     0.5,
+     0.5
+    ]
+   },
+   "surprisal_mean": {
+    "acc": 0.97,
+    "ci": [
+     0.9525,
+     0.985
+    ]
+   },
+   "surprisal_min": {
+    "acc": 0.70875,
+    "ci": [
+     0.6675,
+     0.7475
+    ]
+   },
+   "probe": {
+    "acc": 0.965,
+    "ci": [
+     0.9475,
+     0.9825
+    ]
+   },
+   "hub": {
+    "acc": 0.8975,
+    "ci": [
+     0.865,
+     0.925
+    ]
+   }
+  },
+  "negation": {
+   "n": 400,
+   "family": "meaning",
+   "example": {
+    "en": "Peter Martin, of business consultancy CGA, which compiled the figures, said: \"Continued sunshine and England's longer than expected participation in the World Cup meant July followed a similar pattern to the previous month of June, when pubs were up 2.8 per cent, except that restaurants were hit even harder.",
+    "clean": "Peter Martin, de la consultoría para empresas CGA, que se encargó de recopilar las cifras, comentó: \"El calor de estos días y el hecho de que Inglaterra siga en el Mundial todavía han hecho que en julio se mantenga el patrón del mes anterior de junio, en el que los pubs incrementaron un 2,8 % sus ganancias, si bien los restaurantes han caído incluso algo más.",
+    "bad": "Peter Martin, de la consultoría para empresas CGA, que se encargó de recopilar las cifras, comentó: \"El calor de estos días y el hecho de que Inglaterra siga en el Mundial todavía no han hecho que en julio se mantenga el patrón del mes anterior de junio, en el que los pubs incrementaron un 2,8 % sus ganancias, si bien los restaurantes han caído incluso algo más."
+   },
+   "length": {
+    "acc": 0.5675,
+    "ci": [
+     0.52,
+     0.615
+    ]
+   },
+   "surprisal_mean": {
+    "acc": 0.8125,
+    "ci": [
+     0.775,
+     0.85
+    ]
+   },
+   "surprisal_min": {
+    "acc": 0.4775,
+    "ci": [
+     0.44125,
+     0.5125
+    ]
+   },
+   "probe": {
+    "acc": 0.8375,
+    "ci": [
+     0.8025,
+     0.875
+    ]
+   },
+   "hub": {
+    "acc": 0.8125,
+    "ci": [
+     0.775,
+     0.85
+    ]
+   }
+  },
+  "number": {
+   "n": 365,
+   "family": "meaning",
+   "example": {
+    "en": "Of those, 70 percent said they would vote yes.",
+    "clean": "De estos, el 70 % decía que votaría a favor.",
+    "bad": "De estos, el 73 % decía que votaría a favor."
+   },
+   "length": {
+    "acc": 0.5,
+    "ci": [
+     0.5,
+     0.5
+    ]
+   },
+   "surprisal_mean": {
+    "acc": 0.7753424657534247,
+    "ci": [
+     0.7287671232876712,
+     0.821917808219178
+    ]
+   },
+   "surprisal_min": {
+    "acc": 0.5068493150684932,
+    "ci": [
+     0.4849315068493151,
+     0.5273972602739726
+    ]
+   },
+   "probe": {
+    "acc": 0.6821917808219178,
+    "ci": [
+     0.6383561643835617,
+     0.7315068493150685
+    ]
+   },
+   "hub": {
+    "acc": 0.9095890410958904,
+    "ci": [
+     0.8794520547945206,
+     0.9397260273972603
+    ]
+   }
+  },
+  "entity": {
+   "n": 120,
+   "family": "meaning",
+   "example": {
+    "en": "\"In contrast, at the newsstand down the street here in Beijing, you will find limited dissenting voices and will not see any true reflection of the disparate opinions that the Chinese people may have on China's troubling economic trajectory, given that media is under the firm thumb of the Chinese Communist Party,\" he wrote.",
+    "clean": "\"En cambio, en el quiosco de la calle donde estamos aquí en Beijing, solo se ven unas pocas voces discrepantes y ningún reflejo real de las dispares opiniones que la gente en China puede tener sobre la preocupante trayectoria que está tomando la economía de su país, ya que los medios están controlados por la firme presión del Partido Comunista Chino\", escribió.",
+    "bad": "\"En cambio, en el quiosco de la calle donde estamos aquí en Beijing, solo se ven unas pocas voces discrepantes y ningún reflejo real de las dispares opiniones que la gente en India puede tener sobre la preocupante trayectoria que está tomando la economía de su país, ya que los medios están controlados por la firme presión del Partido Comunista Chino\", escribió."
+   },
+   "length": {
+    "acc": 0.5875,
+    "ci": [
+     0.5125,
+     0.6666666666666666
+    ]
+   },
+   "surprisal_mean": {
+    "acc": 0.8416666666666667,
+    "ci": [
+     0.7666666666666667,
+     0.9
+    ]
+   },
+   "surprisal_min": {
+    "acc": 0.5916666666666667,
+    "ci": [
+     0.5375,
+     0.6416666666666667
+    ]
+   },
+   "probe": {
+    "acc": 0.7333333333333333,
+    "ci": [
+     0.6583333333333333,
+     0.8166666666666667
+    ]
+   },
+   "hub": {
+    "acc": 0.9333333333333333,
+    "ci": [
+     0.8916666666666667,
+     0.975
+    ]
+   }
+  },
+  "antonym": {
+   "n": 380,
+   "family": "meaning",
+   "example": {
+    "en": "Maybe she didn't, but that's the worst body language I've ever seen.\"",
+    "clean": "Tal vez no lo hizo, pero ese es el peor lenguaje corporal que jamás he visto”.",
+    "bad": "Tal vez no lo hizo, pero ese es el mejor lenguaje corporal que jamás he visto”."
+   },
+   "length": {
+    "acc": 0.5092105263157894,
+    "ci": [
+     0.45789473684210524,
+     0.5578947368421052
+    ]
+   },
+   "surprisal_mean": {
+    "acc": 0.8736842105263158,
+    "ci": [
+     0.8394736842105263,
+     0.9105263157894737
+    ]
+   },
+   "surprisal_min": {
+    "acc": 0.5144736842105263,
+    "ci": [
+     0.4934210526315789,
+     0.5368421052631579
+    ]
+   },
+   "probe": {
+    "acc": 0.8184210526315789,
+    "ci": [
+     0.781578947368421,
+     0.8578947368421053
+    ]
+   },
+   "hub": {
+    "acc": 0.7605263157894737,
+    "ci": [
+     0.7131578947368421,
+     0.8052631578947368
+    ]
+   }
+  }
+ },
+ "seconds": 232.30968475341797
+}

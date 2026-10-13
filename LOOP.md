@@ -21,7 +21,8 @@ Updated 2026-10-13. Branch: `product-foundation` (no git remote; nothing pushed)
   hub check best on meaning (0.92–0.95), surprisal ≈ probe on form (0.90–0.99); EsCoLA probe 0.728
   [.69,.76] beats surprisal 0.647. **Gemma 3 4B:** run 1 lost (session died, download hung; downloads now
   capped at 90s); run 2 failed in the probe SVD — fp16 storage overflowed Gemma's massive activations
-  (fixed 14c2bf3: fp32). Run 3 in flight on L4.
+  (fixed 14c2bf3: fp32). Run 3 **done**. Comparison in interp/quality/NOTES.md: Qwen's surprisal is more sensitive to broken
+  Spanish than Gemma's (non-overlapping CIs on gender, negation); Gemma's hub is undefined (flat retrieval).
 
 ## Open decisions for Matt
 - Gemma 3 4B vs Qwen3-4B-2507 as the conversation model (decide on the Colab quality results).
