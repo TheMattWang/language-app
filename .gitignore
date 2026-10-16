@@ -15,3 +15,5 @@ docs/MIS_FALLOS.md
 # interp: downloaded corpora and activation caches
 interp/data/
 interp/*/cache/
+
+# interp: Colab partial downloads are kept (small JSON)
